@@ -180,7 +180,7 @@ import PreviewPanel from '../components/preview/PreviewPanel.vue';
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
-const appVersion = ref('0.0.3');
+const appVersion = ref('0.0.4');
 const updater = useAppUpdater();
 const {
   checking: updateChecking,

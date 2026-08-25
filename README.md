@@ -18,3 +18,5 @@ npm run dev:desktop
 ## 发布
 
 推送 `v*` tag 会触发 GitHub Actions 打包并创建 Release。首次配置自动更新前，请阅读 [应用内更新发布说明](docs/应用内更新发布说明.md)。
+
+Windows 本地发布构建使用 `scripts/build_release.bat`。该入口脚本读取被 Git 忽略的 `src-tauri/keys/updater.key`，生成并校验已签名的 NSIS 安装包和更新签名文件。
