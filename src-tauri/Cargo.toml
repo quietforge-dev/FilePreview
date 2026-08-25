@@ -1,0 +1,22 @@
+[package]
+name = "file-preview"
+version = "0.1.0"
+description = "Local-first file explorer and previewer"
+authors = ["FilePreview"]
+edition = "2021"
+
+[lib]
+name = "file_preview_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+thiserror = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

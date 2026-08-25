@@ -1,0 +1,24 @@
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
+import type { FileInfo, PreviewContent } from '../../types/file';
+import { readTextFile } from './helpers';
+import type { PreviewRenderer } from './types';
+
+const extensions = new Set(['md', 'markdown', 'mdx']);
+
+export class MarkdownRenderer implements PreviewRenderer {
+  readonly id = 'markdown';
+
+  canHandle(file: FileInfo) {
+    return extensions.has(file.extension);
+  }
+
+  async render(file: FileInfo): Promise<PreviewContent> {
+    const source = await readTextFile(file.path);
+    const html = await marked.parse(source, { async: true, gfm: true, breaks: false });
+    return {
+      kind: 'markdown',
+      html: DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }),
+    };
+  }
+}

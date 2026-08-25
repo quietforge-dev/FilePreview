@@ -1,0 +1,17 @@
+:root {
+  color: #243042;
+  font-family: Inter, 'Microsoft YaHei', sans-serif;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 1100px;
+  overflow: hidden;
+}
+button,
+input {
+  font: inherit;
+}
