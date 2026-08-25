@@ -9,22 +9,42 @@
       <el-icon><FolderOpened /></el-icon><span>{{ workspace.name }}</span>
     </button>
     <div v-if="workspace" class="children">
-      <FolderNode :path="workspace.path" :depth="0" @open="emit('open', $event)" />
+      <FolderNode
+        :entries="entries"
+        :depth="0"
+        :active-directory="path"
+        :selected-path="selectedPath"
+        :filter="filter"
+        @open="emit('open', $event)"
+        @select="emit('select', $event)"
+        @contextmenu="forwardContextMenu"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { FolderOpened } from '@element-plus/icons-vue';
-import type { WorkspaceInfo } from '../../types/file';
+import type { FileInfo, WorkspaceInfo } from '../../types/file';
 import FolderNode from './FolderNode.vue';
 
-const props = defineProps<{ workspace: WorkspaceInfo | null; path: string }>();
-const emit = defineEmits<{ open: [path: string] }>();
+const props = defineProps<{
+  workspace: WorkspaceInfo | null;
+  entries: FileInfo[];
+  path: string;
+  selectedPath?: string;
+  filter: string;
+}>();
+const emit = defineEmits<{
+  open: [path: string];
+  select: [file: FileInfo];
+  contextmenu: [file: FileInfo, event: MouseEvent];
+}>();
 
 const openRoot = () => {
   if (props.workspace) emit('open', props.workspace.path);
 };
+const forwardContextMenu = (file: FileInfo, event: MouseEvent) => emit('contextmenu', file, event);
 </script>
 
 <style scoped lang="scss">

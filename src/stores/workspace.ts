@@ -9,11 +9,15 @@ export const useWorkspaceStore = defineStore('workspace', {
     workspace: null as WorkspaceInfo | null,
     currentDirectory: '',
     entries: [] as FileInfo[],
+    directoryEntries: {} as Record<string, FileInfo[]>,
+    loadingDirectories: {} as Record<string, boolean>,
     loading: false,
     error: '',
     filter: '',
   }),
   getters: {
+    rootEntries: (state) =>
+      state.workspace ? (state.directoryEntries[state.workspace.path] ?? []) : [],
     visibleEntries: (state) => {
       const keyword = state.filter.trim().toLowerCase();
       return keyword
@@ -32,6 +36,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         this.workspace = await openWorkspace(path);
         this.currentDirectory = this.workspace.path;
+        this.directoryEntries = {};
+        this.loadingDirectories = {};
         await this.loadDirectory(this.currentDirectory);
         await useHistoryStore().loadWorkspaces();
       } catch (error) {
@@ -47,7 +53,41 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         const target = path ?? this.currentDirectory;
         this.entries = await listDirectory(target);
+        this.directoryEntries = { ...this.directoryEntries, [target]: this.entries };
         this.currentDirectory = target;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        this.loading = false;
+      }
+    },
+    selectDirectory(path: string) {
+      this.currentDirectory = path;
+    },
+    async ensureDirectoryLoaded(path: string) {
+      if (this.directoryEntries[path]) return this.directoryEntries[path];
+      this.loadingDirectories = { ...this.loadingDirectories, [path]: true };
+      this.error = '';
+      try {
+        const entries = await listDirectory(path);
+        this.directoryEntries = { ...this.directoryEntries, [path]: entries };
+        return entries;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.loadingDirectories = { ...this.loadingDirectories, [path]: false };
+      }
+    },
+    async refreshDirectory(path?: string) {
+      const target = path ?? this.currentDirectory;
+      if (!target) return;
+      this.loading = true;
+      this.error = '';
+      try {
+        const entries = await listDirectory(target);
+        this.directoryEntries = { ...this.directoryEntries, [target]: entries };
+        if (target === this.currentDirectory) this.entries = entries;
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
       } finally {
@@ -61,6 +101,10 @@ export const useWorkspaceStore = defineStore('workspace', {
         const copied = await copyEntry(source, destinationDirectory);
         if (destinationDirectory === this.currentDirectory) {
           this.entries = await listDirectory(this.currentDirectory);
+          this.directoryEntries = {
+            ...this.directoryEntries,
+            [this.currentDirectory]: this.entries,
+          };
         }
         return copied;
       } catch (error) {

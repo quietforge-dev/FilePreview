@@ -76,7 +76,7 @@ defineProps<{
   overflow: auto;
 }
 .image-preview {
-  align-items: center;
+  align-items: flex-start;
   background: repeating-conic-gradient(#f2f4f7 0% 25%, #fff 0% 50%) 50% / 20px 20px;
   display: flex;
   justify-content: center;
@@ -84,8 +84,8 @@ defineProps<{
   padding: 32px;
 }
 .image-preview img {
-  max-height: 100%;
+  height: auto;
   max-width: 100%;
-  object-fit: contain;
+  width: 100%;
 }
 </style>

@@ -92,8 +92,13 @@
         <div class="pane-title">资源管理器</div>
         <FolderTree
           :workspace="workspace.workspace"
+          :entries="workspace.rootEntries"
           :path="workspace.currentDirectory"
+          :selected-path="preview.file?.path"
+          :filter="workspace.filter"
           @open="openDirectory"
+          @select="selectEntry"
+          @contextmenu="openContextMenu"
         />
       </aside>
       <div
@@ -101,24 +106,7 @@
         role="separator"
         aria-label="调整资源管理器宽度"
         aria-orientation="vertical"
-        @pointerdown="startResize('folder', $event)"
-      />
-      <section class="list-pane">
-        <div class="pane-title">{{ workspace.workspace ? '文件' : '尚未打开工作区' }}</div>
-        <FileList
-          :entries="workspace.visibleEntries"
-          :loading="workspace.loading"
-          :selected-path="preview.file?.path"
-          @select="selectEntry"
-          @open="openEntry"
-        />
-      </section>
-      <div
-        class="pane-resizer"
-        role="separator"
-        aria-label="调整预览区宽度"
-        aria-orientation="vertical"
-        @pointerdown="startResize('preview', $event)"
+        @pointerdown="startResize($event)"
       />
       <PreviewPanel
         class="preview-pane"
@@ -185,7 +173,6 @@ import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
 import type { FileInfo } from '../types/file';
 import { useAppUpdater } from '../composables/useAppUpdater';
-import FileList from '../components/explorer/FileList.vue';
 import FolderTree from '../components/explorer/FolderTree.vue';
 import PreviewPanel from '../components/preview/PreviewPanel.vue';
 
@@ -207,23 +194,19 @@ const GITHUB_URL = 'https://github.com/quietforge-dev/FilePreview';
 const AUTO_UPDATE_INITIAL_DELAY_MS = 5_000;
 const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const MIN_FOLDER_WIDTH = 180;
-const MIN_FILE_LIST_WIDTH = 320;
 const MIN_PREVIEW_WIDTH = 360;
-const RESIZER_TOTAL_WIDTH = 16;
+const RESIZER_TOTAL_WIDTH = 8;
 
-type ResizePane = 'folder' | 'preview';
 type FileContextMenu = { file: FileInfo; x: number; y: number };
 
 const folderWidth = ref(230);
-const previewWidth = ref(480);
-const activeResizePane = ref<ResizePane | null>(null);
+const activeResize = ref(false);
 const selectedEntry = ref<FileInfo | null>(null);
 const copiedEntry = ref<FileInfo | null>(null);
 const contextMenu = ref<FileContextMenu | null>(null);
 const contextMenuElement = ref<HTMLElement>();
 const layoutStyle = computed(() => ({
   '--folder-width': `${folderWidth.value}px`,
-  '--preview-width': `${previewWidth.value}px`,
 }));
 
 const chooseWorkspace = async () => {
@@ -232,7 +215,7 @@ const chooseWorkspace = async () => {
   preview.clear();
 };
 const openDirectory = async (path: string) => {
-  await workspace.loadDirectory(path);
+  workspace.selectDirectory(path);
   selectedEntry.value = null;
   preview.clear();
 };
@@ -240,11 +223,7 @@ const selectEntry = (entry: FileInfo) => {
   selectedEntry.value = entry;
   if (!entry.isDirectory) void preview.preview(entry);
 };
-const openEntry = (file: FileInfo) => {
-  if (file.isDirectory) void openDirectory(file.path);
-  else selectEntry(file);
-};
-const refresh = () => void workspace.loadDirectory();
+const refresh = () => void workspace.refreshDirectory();
 const copySelectedEntry = (entry: FileInfo) => {
   copiedEntry.value = entry;
   selectedEntry.value = entry;
@@ -273,28 +252,21 @@ const openContextMenu = (file: FileInfo, event: MouseEvent) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const startResize = (pane: ResizePane, event: PointerEvent) => {
+const startResize = (event: PointerEvent) => {
   if (event.button !== 0) return;
   event.preventDefault();
-  activeResizePane.value = pane;
+  activeResize.value = true;
   document.documentElement.style.cursor = 'col-resize';
   document.addEventListener('pointermove', resizePane);
   document.addEventListener('pointerup', stopResize);
 };
 const resizePane = (event: PointerEvent) => {
-  if (!activeResizePane.value) return;
-  if (activeResizePane.value === 'folder') {
-    const maxWidth =
-      window.innerWidth - MIN_FILE_LIST_WIDTH - previewWidth.value - RESIZER_TOTAL_WIDTH;
-    folderWidth.value = clamp(event.clientX - 4, MIN_FOLDER_WIDTH, maxWidth);
-    return;
-  }
-  const maxWidth =
-    window.innerWidth - folderWidth.value - MIN_FILE_LIST_WIDTH - RESIZER_TOTAL_WIDTH;
-  previewWidth.value = clamp(window.innerWidth - event.clientX - 4, MIN_PREVIEW_WIDTH, maxWidth);
+  if (!activeResize.value) return;
+  const maxWidth = window.innerWidth - MIN_PREVIEW_WIDTH - RESIZER_TOTAL_WIDTH;
+  folderWidth.value = clamp(event.clientX - 4, MIN_FOLDER_WIDTH, maxWidth);
 };
 const stopResize = () => {
-  activeResizePane.value = null;
+  activeResize.value = false;
   document.documentElement.style.cursor = '';
   document.removeEventListener('pointermove', resizePane);
   document.removeEventListener('pointerup', stopResize);
@@ -512,11 +484,11 @@ onUnmounted(() => {
 .workspace-layout {
   display: grid;
   flex: 1;
-  grid-template-columns: var(--folder-width) 8px minmax(320px, 1fr) 8px var(--preview-width);
+  grid-template-columns: var(--folder-width) 8px minmax(360px, 1fr);
   min-height: 0;
 }
 .folder-pane,
-.list-pane {
+.preview-pane {
   background: #fff;
   min-width: 0;
   overflow: auto;
@@ -550,10 +522,6 @@ onUnmounted(() => {
 }
 .folder-pane :deep(.tree) {
   padding: 8px 5px;
-}
-.preview-pane {
-  background: #fff;
-  min-width: 0;
 }
 .file-context-menu {
   background: #fff;
