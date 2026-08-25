@@ -55,6 +55,27 @@ impl WorkspaceService {
         Ok(file)
     }
 
+    pub async fn copy_entry(
+        &self,
+        source: String,
+        destination_directory: String,
+    ) -> Result<FileInfo, AppError> {
+        let root = self.workspace_root()?;
+        let source = self.authorized_path(&root, Some(&source))?;
+        let destination_directory = self.authorized_path(&root, Some(&destination_directory))?;
+
+        if !destination_directory.is_dir() {
+            return Err(AppError::NotDirectory);
+        }
+        if source.is_dir() && destination_directory.starts_with(&source) {
+            return Err(AppError::CannotCopyIntoSelf);
+        }
+
+        tokio::task::spawn_blocking(move || filesystem::copy_entry(&source, &destination_directory))
+            .await
+            .map_err(|_| AppError::CopyTaskFailed)?
+    }
+
     fn workspace_root(&self) -> Result<PathBuf, AppError> {
         self.root
             .lock()

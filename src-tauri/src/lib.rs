@@ -26,6 +26,7 @@ pub fn run() {
             commands::open_workspace,
             commands::list_directory,
             commands::read_file,
+            commands::copy_entry,
             commands::record_browsed_file,
             commands::list_recent_workspaces,
             commands::list_recent_files,

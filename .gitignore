@@ -3,5 +3,6 @@ dist/
 src-tauri/target/
 *.tsbuildinfo
 build-output.log
+remark.txt
 .idea/
 src-tauri/keys/

@@ -87,7 +87,7 @@
     <div v-if="workspace.error" class="error-bar">
       <el-icon><WarningFilled /></el-icon>{{ workspace.error }}
     </div>
-    <div class="workspace-layout">
+    <div class="workspace-layout" :style="layoutStyle">
       <aside class="folder-pane">
         <div class="pane-title">资源管理器</div>
         <FolderTree
@@ -96,16 +96,30 @@
           @open="openDirectory"
         />
       </aside>
+      <div
+        class="pane-resizer"
+        role="separator"
+        aria-label="调整资源管理器宽度"
+        aria-orientation="vertical"
+        @pointerdown="startResize('folder', $event)"
+      />
       <section class="list-pane">
         <div class="pane-title">{{ workspace.workspace ? '文件' : '尚未打开工作区' }}</div>
         <FileList
           :entries="workspace.visibleEntries"
           :loading="workspace.loading"
           :selected-path="preview.file?.path"
-          @select="selectFile"
+          @select="selectEntry"
           @open="openEntry"
         />
       </section>
+      <div
+        class="pane-resizer"
+        role="separator"
+        aria-label="调整预览区宽度"
+        aria-orientation="vertical"
+        @pointerdown="startResize('preview', $event)"
+      />
       <PreviewPanel
         class="preview-pane"
         :file="preview.file"
@@ -113,6 +127,28 @@
         :loading="preview.loading"
         :error="preview.error"
       />
+    </div>
+    <div
+      v-if="contextMenu"
+      ref="contextMenuElement"
+      class="file-context-menu"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @contextmenu.prevent
+    >
+      <button type="button" @click="copySelectedEntry(contextMenu.file)">
+        <Copy :size="16" />复制
+      </button>
+      <button
+        type="button"
+        :disabled="!copiedEntry || !workspace.currentDirectory"
+        @click="
+          pasteEntry(
+            contextMenu.file.isDirectory ? contextMenu.file.path : workspace.currentDirectory,
+          )
+        "
+      >
+        <ClipboardPaste :size="16" />粘贴到此处
+      </button>
     </div>
   </main>
   <AppUpdateDialog
@@ -140,7 +176,7 @@ import {
   WarningFilled,
 } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Github, RefreshCw } from 'lucide-vue-next';
+import { ClipboardPaste, Copy, Github, RefreshCw } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { getAppVersion, openProjectUrl } from '../api/app';
 import AppUpdateDialog from '../components/app/AppUpdateDialog.vue';
@@ -156,7 +192,7 @@ import PreviewPanel from '../components/preview/PreviewPanel.vue';
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
-const appVersion = ref('0.0.2');
+const appVersion = ref('0.0.3');
 const updater = useAppUpdater();
 const {
   checking: updateChecking,
@@ -170,23 +206,117 @@ const {
 const GITHUB_URL = 'https://github.com/quietforge-dev/FilePreview';
 const AUTO_UPDATE_INITIAL_DELAY_MS = 5_000;
 const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+const MIN_FOLDER_WIDTH = 180;
+const MIN_FILE_LIST_WIDTH = 320;
+const MIN_PREVIEW_WIDTH = 360;
+const RESIZER_TOTAL_WIDTH = 16;
+
+type ResizePane = 'folder' | 'preview';
+type FileContextMenu = { file: FileInfo; x: number; y: number };
+
+const folderWidth = ref(230);
+const previewWidth = ref(480);
+const activeResizePane = ref<ResizePane | null>(null);
+const selectedEntry = ref<FileInfo | null>(null);
+const copiedEntry = ref<FileInfo | null>(null);
+const contextMenu = ref<FileContextMenu | null>(null);
+const contextMenuElement = ref<HTMLElement>();
+const layoutStyle = computed(() => ({
+  '--folder-width': `${folderWidth.value}px`,
+  '--preview-width': `${previewWidth.value}px`,
+}));
 
 const chooseWorkspace = async () => {
   await workspace.chooseWorkspace();
+  selectedEntry.value = null;
   preview.clear();
 };
 const openDirectory = async (path: string) => {
   await workspace.loadDirectory(path);
+  selectedEntry.value = null;
   preview.clear();
 };
-const selectFile = (file: FileInfo) => {
-  if (!file.isDirectory) void preview.preview(file);
+const selectEntry = (entry: FileInfo) => {
+  selectedEntry.value = entry;
+  if (!entry.isDirectory) void preview.preview(entry);
 };
 const openEntry = (file: FileInfo) => {
   if (file.isDirectory) void openDirectory(file.path);
-  else void preview.preview(file);
+  else selectEntry(file);
 };
 const refresh = () => void workspace.loadDirectory();
+const copySelectedEntry = (entry: FileInfo) => {
+  copiedEntry.value = entry;
+  selectedEntry.value = entry;
+  contextMenu.value = null;
+  ElMessage.success(`已复制 ${entry.name}`);
+};
+const pasteEntry = async (destinationDirectory = workspace.currentDirectory) => {
+  const source = copiedEntry.value;
+  contextMenu.value = null;
+  if (!source || !destinationDirectory) return;
+  try {
+    const copied = await workspace.copyEntry(source.path, destinationDirectory);
+    if (destinationDirectory === workspace.currentDirectory) selectedEntry.value = copied;
+    ElMessage.success(`已粘贴 ${copied.name}`);
+  } catch (error) {
+    ElMessage.error(`粘贴失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+const openContextMenu = (file: FileInfo, event: MouseEvent) => {
+  selectedEntry.value = file;
+  contextMenu.value = {
+    file,
+    x: Math.min(event.clientX, window.innerWidth - 176),
+    y: Math.min(event.clientY, window.innerHeight - 100),
+  };
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const startResize = (pane: ResizePane, event: PointerEvent) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  activeResizePane.value = pane;
+  document.documentElement.style.cursor = 'col-resize';
+  document.addEventListener('pointermove', resizePane);
+  document.addEventListener('pointerup', stopResize);
+};
+const resizePane = (event: PointerEvent) => {
+  if (!activeResizePane.value) return;
+  if (activeResizePane.value === 'folder') {
+    const maxWidth =
+      window.innerWidth - MIN_FILE_LIST_WIDTH - previewWidth.value - RESIZER_TOTAL_WIDTH;
+    folderWidth.value = clamp(event.clientX - 4, MIN_FOLDER_WIDTH, maxWidth);
+    return;
+  }
+  const maxWidth =
+    window.innerWidth - folderWidth.value - MIN_FILE_LIST_WIDTH - RESIZER_TOTAL_WIDTH;
+  previewWidth.value = clamp(window.innerWidth - event.clientX - 4, MIN_PREVIEW_WIDTH, maxWidth);
+};
+const stopResize = () => {
+  activeResizePane.value = null;
+  document.documentElement.style.cursor = '';
+  document.removeEventListener('pointermove', resizePane);
+  document.removeEventListener('pointerup', stopResize);
+};
+const closeContextMenuOnOutsideClick = (event: PointerEvent) => {
+  if (contextMenuElement.value?.contains(event.target as Node)) return;
+  contextMenu.value = null;
+};
+const handleKeyboardShortcut = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null;
+  if (target?.matches('input, textarea, [contenteditable="true"]')) return;
+  if (!event.ctrlKey && !event.metaKey) return;
+
+  if (event.key.toLowerCase() === 'c' && selectedEntry.value) {
+    event.preventDefault();
+    copySelectedEntry(selectedEntry.value);
+  }
+  if (event.key.toLowerCase() === 'v' && copiedEntry.value && workspace.currentDirectory) {
+    event.preventDefault();
+    void pasteEntry();
+  }
+};
 const openGithub = async () => {
   try {
     await openProjectUrl(GITHUB_URL);
@@ -233,6 +363,7 @@ const openRecentWorkspace = async (command: string) => {
     return;
   }
   await workspace.openWorkspace(command);
+  selectedEntry.value = null;
   preview.clear();
 };
 
@@ -246,14 +377,16 @@ const openRecentFile = async (command: string) => {
   const separator = Math.max(item.path.lastIndexOf('/'), item.path.lastIndexOf('\\'));
   if (separator < 1) return;
   await workspace.openWorkspace(item.path.slice(0, separator));
-  await preview.preview({
+  const file = {
     path: item.path,
     name: item.name,
     extension: item.extension,
     size: 0,
     modifiedAt: null,
     isDirectory: false,
-  });
+  };
+  selectedEntry.value = file;
+  await preview.preview(file);
 };
 
 const clearHistory = async (name: string, action: () => Promise<void>) => {
@@ -274,6 +407,8 @@ let initialUpdateTimer: number | undefined;
 let periodicUpdateTimer: number | undefined;
 
 onMounted(() => {
+  document.addEventListener('pointerdown', closeContextMenuOnOutsideClick);
+  window.addEventListener('keydown', handleKeyboardShortcut);
   void getAppVersion().then((value) => (appVersion.value = value));
   initialUpdateTimer = window.setTimeout(
     () => void checkForUpdatesSilently(),
@@ -286,6 +421,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  stopResize();
+  document.removeEventListener('pointerdown', closeContextMenuOnOutsideClick);
+  window.removeEventListener('keydown', handleKeyboardShortcut);
   if (initialUpdateTimer !== undefined) window.clearTimeout(initialUpdateTimer);
   if (periodicUpdateTimer !== undefined) window.clearInterval(periodicUpdateTimer);
 });
@@ -374,15 +512,29 @@ onUnmounted(() => {
 .workspace-layout {
   display: grid;
   flex: 1;
-  grid-template-columns: 230px minmax(370px, 1fr) minmax(430px, 1.35fr);
+  grid-template-columns: var(--folder-width) 8px minmax(320px, 1fr) 8px var(--preview-width);
   min-height: 0;
 }
 .folder-pane,
 .list-pane {
   background: #fff;
-  border-right: 1px solid #e1e6ed;
   min-width: 0;
   overflow: auto;
+}
+.pane-resizer {
+  background: #fff;
+  cursor: col-resize;
+  position: relative;
+  touch-action: none;
+}
+.pane-resizer::after {
+  background: #e1e6ed;
+  content: '';
+  inset: 0 3px;
+  position: absolute;
+}
+.pane-resizer:hover::after {
+  background: #60a5fa;
 }
 .pane-title {
   align-items: center;
@@ -402,5 +554,35 @@ onUnmounted(() => {
 .preview-pane {
   background: #fff;
   min-width: 0;
+}
+.file-context-menu {
+  background: #fff;
+  border: 1px solid #d8dee8;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 16%);
+  min-width: 168px;
+  padding: 4px;
+  position: fixed;
+  z-index: 20;
+}
+.file-context-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #344054;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 9px;
+  text-align: left;
+  width: 100%;
+}
+.file-context-menu button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.file-context-menu button:disabled {
+  color: #98a2b3;
+  cursor: not-allowed;
 }
 </style>

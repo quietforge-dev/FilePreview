@@ -16,6 +16,10 @@ pub enum AppError {
     NotDirectory,
     #[error("不能读取目录")]
     IsDirectory,
+    #[error("不能将文件夹复制到它自身或其子目录中")]
+    CannotCopyIntoSelf,
+    #[error("文件复制任务失败")]
+    CopyTaskFailed,
     #[error("文件过大，最大支持 {0} MB")]
     FileTooLarge(u64),
     #[error("文件系统错误：{0}")]

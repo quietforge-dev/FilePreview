@@ -4,7 +4,9 @@
     v-loading="loading"
     height="100%"
     class="file-list"
+    @row-click="emit('select', $event)"
     @row-dblclick="emit('open', $event)"
+    @row-contextmenu="handleRowContextMenu"
   >
     <el-table-column label="名称" min-width="220">
       <template #default="{ row }: { row: FileInfo }">
@@ -44,7 +46,16 @@ import { Document, Folder } from '@element-plus/icons-vue';
 import type { FileInfo } from '../../types/file';
 
 defineProps<{ entries: FileInfo[]; loading: boolean; selectedPath?: string }>();
-const emit = defineEmits<{ select: [file: FileInfo]; open: [file: FileInfo] }>();
+const emit = defineEmits<{
+  select: [file: FileInfo];
+  open: [file: FileInfo];
+  contextmenu: [file: FileInfo, event: MouseEvent];
+}>();
+
+const handleRowContextMenu = (_row: FileInfo, _column: unknown, event: MouseEvent) => {
+  event.preventDefault();
+  emit('contextmenu', _row, event);
+};
 
 const formatSize = (size: number) => {
   if (size < 1024) return `${size} B`;

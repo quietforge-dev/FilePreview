@@ -64,6 +64,19 @@ pub fn read_file(path: String, state: State<'_, AppState>) -> Result<Vec<u8>, St
 }
 
 #[tauri::command]
+pub async fn copy_entry(
+    source: String,
+    destination_directory: String,
+    state: State<'_, AppState>,
+) -> Result<FileInfo, String> {
+    state
+        .workspace
+        .copy_entry(source, destination_directory)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn record_browsed_file(path: String, state: State<'_, AppState>) -> Result<(), String> {
     history_service::record_browsed_file(&state.pool, &state.workspace, path)
         .await
