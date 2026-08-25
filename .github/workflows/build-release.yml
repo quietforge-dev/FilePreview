@@ -71,9 +71,9 @@ jobs:
           $installDirectory = Join-Path $env:RUNNER_TEMP 'FilePreview-smoke'
           $installerProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDirectory") -Wait -PassThru
           if ($installerProcess.ExitCode -ne 0) { throw "FilePreview 安装失败，退出码：$($installerProcess.ExitCode)" }
-          $application = Join-Path $installDirectory 'FilePreview.exe'
-          if (-not (Test-Path $application)) { throw "未找到已安装的主程序：$application" }
-          $process = Start-Process -FilePath $application -PassThru
+          $application = Get-ChildItem -Path $installDirectory -Filter '*.exe' | Select-Object -First 1
+          if (-not $application) { throw "未找到已安装的主程序：$installDirectory" }
+          $process = Start-Process -FilePath $application.FullName -PassThru
           Start-Sleep -Seconds 5
           if ($process.HasExited) { throw 'FilePreview 主程序启动后意外退出' }
           Stop-Process -Id $process.Id -Force
