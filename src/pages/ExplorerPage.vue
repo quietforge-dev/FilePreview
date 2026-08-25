@@ -62,6 +62,7 @@
       </div>
       <div class="path">{{ workspace.currentDirectory || '选择一个本地文件夹' }}</div>
       <div class="toolbar-right">
+        <span class="app-version" :title="`FilePreview v${appVersion}`">v{{ appVersion }}</span>
         <el-tooltip content="在 GitHub 查看项目" placement="bottom">
           <el-button :icon="Github" circle aria-label="打开 GitHub" @click="openGithub" />
         </el-tooltip>
@@ -155,7 +156,7 @@ import PreviewPanel from '../components/preview/PreviewPanel.vue';
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
-const appVersion = ref('0.0.1');
+const appVersion = ref('0.0.2');
 const updater = useAppUpdater();
 const {
   checking: updateChecking,
@@ -342,6 +343,12 @@ onUnmounted(() => {
 }
 .toolbar-right .el-button {
   flex: 0 0 auto;
+}
+.app-version {
+  color: #7b8797;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .search {
   min-width: 0;
