@@ -1,0 +1,4 @@
+interface:
+  display_name: "FilePreview 数据库迁移"
+  short_description: "维护 FilePreview SQLx SQLite 表结构和迁移"
+  default_prompt: "Use $filepreview-database-migrations to safely implement and test a FilePreview database schema change."

@@ -45,6 +45,16 @@ impl WorkspaceService {
         filesystem::read_file(&target, MAX_PREVIEW_FILE_SIZE_BYTES)
     }
 
+    pub fn file_info(&self, path: String) -> Result<FileInfo, AppError> {
+        let root = self.workspace_root()?;
+        let target = self.authorized_path(&root, Some(&path))?;
+        let file = filesystem::file_info(&target)?;
+        if file.is_directory {
+            return Err(AppError::IsDirectory);
+        }
+        Ok(file)
+    }
+
     fn workspace_root(&self) -> Result<PathBuf, AppError> {
         self.root
             .lock()

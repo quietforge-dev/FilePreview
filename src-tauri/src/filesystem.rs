@@ -27,10 +27,12 @@ pub fn read_file(path: &Path, max_size_bytes: u64) -> Result<Vec<u8>, AppError> 
     Ok(fs::read(path)?)
 }
 
-fn file_info_from_entry(entry: fs::DirEntry) -> Result<FileInfo, AppError> {
-    let path = entry.path();
-    let metadata = entry.metadata()?;
-    let name = entry.file_name().to_string_lossy().to_string();
+pub fn file_info(path: &Path) -> Result<FileInfo, AppError> {
+    let metadata = fs::metadata(path)?;
+    let name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string());
     let extension = if metadata.is_dir() {
         String::new()
     } else {
@@ -52,4 +54,8 @@ fn file_info_from_entry(entry: fs::DirEntry) -> Result<FileInfo, AppError> {
         modified_at,
         is_directory: metadata.is_dir(),
     })
+}
+
+fn file_info_from_entry(entry: fs::DirEntry) -> Result<FileInfo, AppError> {
+    file_info(&entry.path())
 }

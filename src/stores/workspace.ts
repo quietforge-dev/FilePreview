@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listDirectory, openWorkspace } from '../api/file';
 import type { FileInfo, WorkspaceInfo } from '../types/file';
+import { useHistoryStore } from './history';
 
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
@@ -32,6 +33,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.workspace = await openWorkspace(path);
         this.currentDirectory = this.workspace.path;
         await this.loadDirectory(this.currentDirectory);
+        await useHistoryStore().loadWorkspaces();
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
       } finally {

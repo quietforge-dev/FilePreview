@@ -1,0 +1,4 @@
+interface:
+  display_name: "FilePreview GitHub Actions"
+  short_description: "配置和排查 FilePreview 跨平台桌面构建"
+  default_prompt: "Use $filepreview-github-actions to configure or troubleshoot FilePreview GitHub Actions builds."

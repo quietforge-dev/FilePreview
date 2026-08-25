@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
+import { recordBrowsedFile } from '../api/history';
 import { previewManager } from '../services/preview/PreviewManager';
 import type { FileInfo, PreviewContent } from '../types/file';
+import { useHistoryStore } from './history';
 
 export const usePreviewStore = defineStore('preview', {
   state: () => ({
@@ -17,6 +19,12 @@ export const usePreviewStore = defineStore('preview', {
       this.loading = true;
       this.error = '';
       try {
+        try {
+          await recordBrowsedFile(file.path);
+          await useHistoryStore().loadFiles();
+        } catch {
+          // 浏览记录失败不应阻止当前文件的正常预览。
+        }
         this.content = await previewManager.render(file);
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);

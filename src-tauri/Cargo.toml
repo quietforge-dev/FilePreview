@@ -1,6 +1,6 @@
 [package]
 name = "file-preview"
-version = "0.1.0"
+version = "0.0.1"
 description = "Local-first file explorer and previewer"
 authors = ["FilePreview"]
 edition = "2021"
@@ -13,10 +13,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+directories = "6"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate", "macros"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 thiserror = "2"
+tokio = { version = "1", features = ["full"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

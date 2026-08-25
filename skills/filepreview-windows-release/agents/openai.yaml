@@ -1,0 +1,4 @@
+interface:
+  display_name: "FilePreview Windows 发版"
+  short_description: "构建并验证 FilePreview Windows Tauri 安装包"
+  default_prompt: "Use $filepreview-windows-release to prepare and verify a FilePreview Windows release."

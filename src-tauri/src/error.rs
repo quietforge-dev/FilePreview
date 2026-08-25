@@ -4,6 +4,10 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    #[error("数据库错误：{0}")]
+    Database(#[from] sqlx::Error),
+    #[error("数据库迁移错误：{0}")]
+    Migration(#[from] sqlx::migrate::MigrateError),
     #[error("尚未打开工作区")]
     WorkspaceNotOpen,
     #[error("文件不在当前工作区内")]
