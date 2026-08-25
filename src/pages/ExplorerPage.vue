@@ -114,6 +114,7 @@
         :content="preview.content"
         :loading="preview.loading"
         :error="preview.error"
+        @retry="retryPreview"
       />
     </div>
     <div
@@ -224,6 +225,9 @@ const selectEntry = (entry: FileInfo) => {
   if (!entry.isDirectory) void preview.preview(entry);
 };
 const refresh = () => void workspace.refreshDirectory();
+const retryPreview = () => {
+  if (preview.file) void preview.preview(preview.file);
+};
 const copySelectedEntry = (entry: FileInfo) => {
   copiedEntry.value = entry;
   selectedEntry.value = entry;

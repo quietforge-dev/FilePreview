@@ -26,6 +26,9 @@ pub fn run() {
             commands::open_workspace,
             commands::list_directory,
             commands::read_file,
+            commands::office_runtime_status,
+            commands::install_libreoffice,
+            commands::convert_office_to_pdf,
             commands::copy_entry,
             commands::record_browsed_file,
             commands::list_recent_workspaces,
@@ -34,6 +37,7 @@ pub fn run() {
             commands::clear_recent_files,
             commands::app_version,
             commands::open_external_url,
+            commands::open_libreoffice_download_page,
         ])
         .run(tauri::generate_context!())
         .expect("运行 FilePreview 失败");

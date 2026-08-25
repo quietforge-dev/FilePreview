@@ -2,6 +2,7 @@ import type { FileInfo, PreviewContent } from '../../types/file';
 import { ImageRenderer } from './ImageRenderer';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { OfficeRenderer } from './OfficeRenderer';
+import { PdfRenderer } from './PdfRenderer';
 import { TextRenderer } from './TextRenderer';
 import type { PreviewRenderer } from './types';
 import { UnsupportedRenderer } from './UnsupportedRenderer';
@@ -23,6 +24,7 @@ export class PreviewManager {
 export const previewManager = new PreviewManager([
   new MarkdownRenderer(),
   new OfficeRenderer(),
+  new PdfRenderer(),
   new ImageRenderer(),
   new TextRenderer(),
   new UnsupportedRenderer(),

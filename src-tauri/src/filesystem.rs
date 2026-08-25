@@ -17,6 +17,11 @@ pub fn list_directory(path: &Path) -> Result<Vec<FileInfo>, AppError> {
 }
 
 pub fn read_file(path: &Path, max_size_bytes: u64) -> Result<Vec<u8>, AppError> {
+    validate_preview_file(path, max_size_bytes)?;
+    Ok(fs::read(path)?)
+}
+
+pub fn validate_preview_file(path: &Path, max_size_bytes: u64) -> Result<(), AppError> {
     let metadata = fs::metadata(path)?;
     if metadata.is_dir() {
         return Err(AppError::IsDirectory);
@@ -24,7 +29,7 @@ pub fn read_file(path: &Path, max_size_bytes: u64) -> Result<Vec<u8>, AppError> 
     if metadata.len() > max_size_bytes {
         return Err(AppError::FileTooLarge(max_size_bytes / 1024 / 1024));
     }
-    Ok(fs::read(path)?)
+    Ok(())
 }
 
 pub fn copy_entry(source: &Path, destination_directory: &Path) -> Result<FileInfo, AppError> {

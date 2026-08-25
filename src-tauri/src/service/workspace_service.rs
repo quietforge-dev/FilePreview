@@ -7,6 +7,7 @@ use crate::{
     error::AppError,
     filesystem,
     model::{FileInfo, WorkspaceInfo},
+    service::office_preview_service,
 };
 
 const MAX_PREVIEW_FILE_SIZE_BYTES: u64 = 25 * 1024 * 1024;
@@ -53,6 +54,13 @@ impl WorkspaceService {
             return Err(AppError::IsDirectory);
         }
         Ok(file)
+    }
+
+    pub async fn convert_office_to_pdf(&self, path: String) -> Result<Vec<u8>, AppError> {
+        let root = self.workspace_root()?;
+        let target = self.authorized_path(&root, Some(&path))?;
+        filesystem::validate_preview_file(&target, MAX_PREVIEW_FILE_SIZE_BYTES)?;
+        office_preview_service::convert_to_pdf(&target, &crate::config::preview_cache_dir()).await
     }
 
     pub async fn copy_entry(

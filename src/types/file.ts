@@ -12,11 +12,13 @@ export interface WorkspaceInfo {
   name: string;
 }
 
-export type PreviewKind = 'markdown' | 'text' | 'office' | 'image' | 'unsupported';
+export type PreviewKind =
+  'markdown' | 'text' | 'pdf' | 'office-unavailable' | 'image' | 'unsupported';
 
 export type PreviewContent =
   | { kind: 'markdown'; html: string }
   | { kind: 'text'; content: string; language: string }
-  | { kind: 'office'; officeType: 'word' | 'powerpoint'; html?: string; slides?: string[][] }
+  | { kind: 'pdf'; data: Uint8Array }
+  | { kind: 'office-unavailable'; message: string }
   | { kind: 'image'; url: string }
   | { kind: 'unsupported'; message: string };

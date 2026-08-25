@@ -22,6 +22,20 @@ pub enum AppError {
     CopyTaskFailed,
     #[error("文件过大，最大支持 {0} MB")]
     FileTooLarge(u64),
+    #[error("未检测到 LibreOffice。请安装后重新尝试预览 Office 文件")]
+    LibreOfficeNotInstalled,
+    #[error("未检测到 Windows 应用安装器 winget，请通过 LibreOffice 官方网站安装")]
+    WingetNotAvailable,
+    #[error("LibreOffice 安装失败，退出码：{0}")]
+    LibreOfficeInstallFailed(String),
+    #[error("LibreOffice 安装任务失败")]
+    LibreOfficeInstallTaskFailed,
+    #[error("当前系统不支持应用内安装 LibreOffice，请通过官方网站安装")]
+    LibreOfficeInstallNotSupported,
+    #[error("LibreOffice 转换失败：{0}")]
+    LibreOfficeConversionFailed(String),
+    #[error("LibreOffice 转换任务失败")]
+    LibreOfficeConversionTaskFailed,
     #[error("文件系统错误：{0}")]
     Io(#[from] io::Error),
 }

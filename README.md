@@ -2,7 +2,9 @@
 
 FilePreview 是一个本地优先的桌面文件浏览与预览工具，使用 Rust、Tauri 2、Vue 3 和 SQLite 构建。
 
-当前支持 Markdown、Word、PowerPoint 和文本文件预览；不支持的格式会明确提示。
+当前支持 Markdown、文本、图片和 PDF 预览。安装 LibreOffice 后，还支持通过高保真 PDF 转换预览 `.doc`、`.docx`、`.ppt`、`.pptx`、`.xls` 和 `.xlsx`；不支持的格式会明确提示。
+
+首次打开 Office 文件时，如未检测到 LibreOffice，预览区会提供 Windows 快速安装和官方下载安装入口。文件始终在本地转换和预览，不会上传或修改原文件。
 
 ## 开发
 

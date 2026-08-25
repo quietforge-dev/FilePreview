@@ -13,12 +13,31 @@
         :content="content.content"
         :language="content.language"
       />
-      <OfficePreview
-        v-else-if="content?.kind === 'office'"
-        :office-type="content.officeType"
-        :html="content.html"
-        :slides="content.slides"
-      />
+      <PdfPreview v-else-if="content?.kind === 'pdf'" :data="content.data" />
+      <el-result
+        v-else-if="content?.kind === 'office-unavailable'"
+        icon="warning"
+        title="需要 LibreOffice"
+        :sub-title="content.message"
+      >
+        <template #extra>
+          <div class="office-actions">
+            <el-button
+              v-if="officeRuntime.supportsQuickInstall"
+              type="primary"
+              :loading="officeRuntime.installing"
+              @click="installLibreOffice"
+            >
+              安装 LibreOffice
+            </el-button>
+            <el-button @click="openDownloadPage">官方下载</el-button>
+            <el-button :loading="officeRuntime.checking" @click="retryOfficePreview">
+              重新检测
+            </el-button>
+          </div>
+          <p v-if="officeRuntime.error" class="office-error">{{ officeRuntime.error }}</p>
+        </template>
+      </el-result>
       <div v-else-if="content?.kind === 'image'" class="image-preview">
         <img :src="content.url" :alt="file?.name" />
       </div>
@@ -35,15 +54,40 @@
 <script setup lang="ts">
 import type { FileInfo, PreviewContent } from '../../types/file';
 import MarkdownPreview from './MarkdownPreview.vue';
-import OfficePreview from './OfficePreview.vue';
+import PdfPreview from './PdfPreview.vue';
 import TextPreview from './TextPreview.vue';
+import { useOfficeRuntimeStore } from '../../stores/officeRuntime';
+import { watch } from 'vue';
 
-defineProps<{
+const props = defineProps<{
   file: FileInfo | null;
   content: PreviewContent | null;
   loading: boolean;
   error: string;
 }>();
+const emit = defineEmits<{ retry: [] }>();
+const officeRuntime = useOfficeRuntimeStore();
+
+watch(
+  () => props.content?.kind,
+  (kind) => {
+    if (kind === 'office-unavailable') void officeRuntime.check();
+  },
+  { immediate: true },
+);
+
+const retryOfficePreview = async () => {
+  if (await officeRuntime.check()) emit('retry');
+};
+const installLibreOffice = async () => {
+  try {
+    await officeRuntime.install();
+    if (officeRuntime.installed) emit('retry');
+  } catch {
+    // 安装错误通过当前预览区呈现，用户可选择官网安装。
+  }
+};
+const openDownloadPage = () => void officeRuntime.openDownloadPage();
 </script>
 
 <style scoped lang="scss">
@@ -87,5 +131,16 @@ defineProps<{
   height: auto;
   max-width: 100%;
   width: 100%;
+}
+.office-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.office-error {
+  color: #b42318;
+  font-size: 13px;
+  margin: 12px 0 0;
 }
 </style>

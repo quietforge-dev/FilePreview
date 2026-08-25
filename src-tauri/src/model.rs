@@ -35,3 +35,10 @@ pub struct RecentFile {
     pub extension: String,
     pub last_opened_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeRuntimeStatus {
+    pub installed: bool,
+    pub supports_quick_install: bool,
+}
