@@ -1,4 +1,9 @@
-use std::{fs, path::Path, time::UNIX_EPOCH};
+use std::{
+    fs,
+    path::Path,
+    process,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{error::AppError, model::FileInfo};
 
@@ -28,6 +33,50 @@ pub fn validate_preview_file(path: &Path, max_size_bytes: u64) -> Result<(), App
     }
     if metadata.len() > max_size_bytes {
         return Err(AppError::FileTooLarge(max_size_bytes / 1024 / 1024));
+    }
+    Ok(())
+}
+
+pub fn write_markdown_file_atomically(path: &Path, content: &str) -> Result<FileInfo, AppError> {
+    validate_markdown_file(path, content.len() as u64)?;
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "无法确定文件所在目录")
+    })?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "无法确定文件名"))?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = parent.join(format!(
+        ".{}.filepreview-{}-{timestamp}.tmp",
+        file_name.to_string_lossy(),
+        process::id()
+    ));
+
+    fs::write(&temporary, content)?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    file_info(path)
+}
+
+fn validate_markdown_file(path: &Path, content_size_bytes: u64) -> Result<(), AppError> {
+    validate_preview_file(path, 25 * 1024 * 1024)?;
+    if content_size_bytes > 25 * 1024 * 1024 {
+        return Err(AppError::FileTooLarge(25));
+    }
+    let is_markdown = matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| extension.to_ascii_lowercase())
+            .as_deref(),
+        Some("md" | "markdown")
+    );
+    if !is_markdown {
+        return Err(AppError::NotMarkdownFile);
     }
     Ok(())
 }

@@ -41,6 +41,19 @@ pub fn file_info(path: String, state: State<'_, AppState>) -> Result<FileInfo, S
 }
 
 #[tauri::command]
+pub async fn write_markdown_file(
+    path: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> Result<FileInfo, String> {
+    state
+        .workspace
+        .write_markdown_file(path, content)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn search_file_contents(
     query: String,
     state: State<'_, AppState>,

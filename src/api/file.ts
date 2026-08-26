@@ -12,6 +12,9 @@ export const readFile = async (path: string): Promise<Uint8Array> => {
 
 export const getFileInfo = (path: string) => invoke<FileInfo>('file_info', { path });
 
+export const writeMarkdownFile = (path: string, content: string) =>
+  invoke<FileInfo>('write_markdown_file', { path, content });
+
 export interface ContentSearchResult {
   path: string;
   name: string;

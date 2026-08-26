@@ -39,7 +39,12 @@
         </el-tooltip>
       </div>
     </header>
-    <ExplorerTabBar @choose-workspace="chooseWorkspace" />
+    <ExplorerTabBar
+      @choose-workspace="chooseWorkspace"
+      @activate="activateTab"
+      @close="closeTab"
+      @close-tabs="closeTabs"
+    />
     <RecentHistoryDialog
       v-model="historyDialogVisible"
       :title="historyDialogTitle"
@@ -80,6 +85,7 @@
         :loading="preview.loading"
         :error="preview.error"
         @retry="retryPreview"
+        @reload-markdown="reloadMarkdown"
       />
     </div>
     <div
@@ -143,6 +149,7 @@ import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
 import { useAppSettingsStore } from '../stores/appSettings';
+import { useMarkdownEditorStore } from '../stores/markdownEditor';
 import { useSearchStore } from '../stores/search';
 import { useTabsStore } from '../stores/tabs';
 import type { FileInfo } from '../types/file';
@@ -154,6 +161,7 @@ const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
 const appSettings = useAppSettingsStore();
+const markdownEditor = useMarkdownEditorStore();
 const search = useSearchStore();
 const tabs = useTabsStore();
 const appVersion = ref('0.0.5');
@@ -207,7 +215,10 @@ const historyDialogEmptyText = computed(() =>
 );
 
 const chooseWorkspace = async () => {
+  if (!(await confirmMarkdownChanges(filePathsForTabs(tabs.tabs)))) return;
+  const previousPath = workspace.workspace?.path;
   await tabs.chooseWorkspace();
+  if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
   selectedEntry.value = null;
 };
 const openDirectory = async (path: string) => {
@@ -216,13 +227,109 @@ const openDirectory = async (path: string) => {
   selectedEntry.value = null;
   preview.clear();
 };
-const selectEntry = (entry: FileInfo) => {
+const selectEntry = async (entry: FileInfo) => {
+  if (!entry.isDirectory && !(await openFile(entry))) return;
   selectedEntry.value = entry;
-  if (!entry.isDirectory) void tabs.openFile(entry);
 };
 const refresh = () => void workspace.refreshLoadedDirectories();
 const retryPreview = () => {
   if (preview.file) void preview.preview(preview.file);
+};
+const activeFilePath = () =>
+  tabs.activeTab?.kind === 'file' && tabs.activeTab.filePath ? [tabs.activeTab.filePath] : [];
+const filePathsForTabs = (tabList: typeof tabs.tabs) =>
+  tabList.flatMap((tab) => (tab.kind === 'file' && tab.filePath ? [tab.filePath] : []));
+const markdownPathsBeforeOpening = (file: FileInfo) => {
+  const existing = tabs.tabs.find((tab) => tab.kind === 'file' && tab.filePath === file.path);
+  const paths = existing?.id === tabs.activeId ? [] : activeFilePath();
+  if (!existing && tabs.tabs.length >= 20) paths.push(...filePathsForTabs(tabs.tabs.slice(0, 1)));
+  return paths;
+};
+const removeMarkdownSessions = (paths: string[]) =>
+  paths.forEach((path) => markdownEditor.remove(path));
+const confirmMarkdownChanges = async (paths: string[]) => {
+  const dirtyPaths = [...new Set(paths)].filter((path) => markdownEditor.sessions[path]?.dirty);
+  if (!dirtyPaths.length) return true;
+  const hasExternalChanges = dirtyPaths.some(
+    (path) => markdownEditor.sessions[path]?.externalChanged,
+  );
+
+  try {
+    await ElMessageBox.confirm(
+      hasExternalChanges
+        ? '文件已在外部修改，保存将覆盖外部内容。'
+        : '存在未保存的 Markdown 修改。',
+      hasExternalChanges ? '确认覆盖保存' : '未保存的修改',
+      {
+        confirmButtonText: hasExternalChanges ? '覆盖保存并继续' : '保存并继续',
+        cancelButtonText: '放弃修改',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      },
+    );
+  } catch (reason) {
+    if (reason === 'cancel') {
+      dirtyPaths.forEach((path) => markdownEditor.discardChanges(path));
+      return true;
+    }
+    return false;
+  }
+
+  try {
+    for (const path of dirtyPaths) {
+      const saved = await markdownEditor.save(path);
+      if (!saved) throw new Error('文件正在保存，请稍后重试');
+      preview.updateFileMetadata(saved);
+    }
+    return true;
+  } catch (error) {
+    ElMessage.error(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+};
+const activateTab = async (id: string) => {
+  if (id === tabs.activeId || !(await confirmMarkdownChanges(activeFilePath()))) return;
+  await tabs.activate(id);
+};
+const closeTab = async (id: string) => {
+  const target = tabs.tabs.find((tab) => tab.id === id);
+  const paths = filePathsForTabs(target ? [target] : []);
+  if (!(await confirmMarkdownChanges(paths))) return;
+  await tabs.close(id);
+  removeMarkdownSessions(paths);
+};
+const closeTabs = async (scope: 'left' | 'right' | 'others' | 'all', id: string) => {
+  const index = tabs.tabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  const closingTabs =
+    scope === 'left'
+      ? tabs.tabs.slice(0, index)
+      : scope === 'right'
+        ? tabs.tabs.slice(index + 1)
+        : scope === 'others'
+          ? tabs.tabs.filter((tab) => tab.id !== id)
+          : tabs.tabs;
+  const paths = filePathsForTabs(closingTabs);
+  if (!(await confirmMarkdownChanges(paths))) return;
+  if (scope === 'left') await tabs.closeLeft(id);
+  if (scope === 'right') await tabs.closeRight(id);
+  if (scope === 'others') await tabs.closeOthers(id);
+  if (scope === 'all') await tabs.closeAll();
+  removeMarkdownSessions(paths);
+};
+const closeActiveTab = () => {
+  if (tabs.activeId) void closeTab(tabs.activeId);
+};
+const openFile = async (file: FileInfo) => {
+  const evictedPaths =
+    !tabs.tabs.some((tab) => tab.kind === 'file' && tab.filePath === file.path) &&
+    tabs.tabs.length >= 20
+      ? filePathsForTabs(tabs.tabs.slice(0, 1))
+      : [];
+  if (!(await confirmMarkdownChanges(markdownPathsBeforeOpening(file)))) return false;
+  await tabs.openFile(file);
+  removeMarkdownSessions(evictedPaths);
+  return true;
 };
 const copySelectedEntry = (entry: FileInfo) => {
   copiedEntry.value = entry;
@@ -301,7 +408,7 @@ const handleKeyboardShortcut = (event: KeyboardEvent) => {
   }
   if (event.key.toLowerCase() === 'w') {
     event.preventDefault();
-    void tabs.close();
+    closeActiveTab();
     return;
   }
 
@@ -359,7 +466,10 @@ const openRecentWorkspace = async (command: string) => {
     await clearHistory('最近文件夹', () => history.clearWorkspaces());
     return;
   }
-  await tabs.replaceWorkspace(command);
+  if (!(await confirmMarkdownChanges(filePathsForTabs(tabs.tabs)))) return;
+  const previousPath = workspace.workspace?.path;
+  if (!(await tabs.replaceWorkspace(command))) return;
+  if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
   selectedEntry.value = null;
 };
 
@@ -372,7 +482,10 @@ const openRecentFile = async (command: string) => {
   if (!item) return;
   const separator = Math.max(item.path.lastIndexOf('/'), item.path.lastIndexOf('\\'));
   if (separator < 1) return;
+  if (!(await confirmMarkdownChanges(filePathsForTabs(tabs.tabs)))) return;
+  const previousPath = workspace.workspace?.path;
   if (!(await tabs.replaceWorkspace(item.path.slice(0, separator)))) return;
+  if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
   try {
     const file = await getFileInfo(item.path);
     selectedEntry.value = file;
@@ -399,19 +512,24 @@ const clearHistoryDialog = () => {
 const openSearchResult = async (result: ContentSearchResult) => {
   try {
     const file = await getFileInfo(result.path);
+    if (!(await openFile(file))) return;
     selectedEntry.value = file;
-    await tabs.openFile(file);
     search.close();
   } catch (error) {
     ElMessage.error(`无法打开搜索结果：${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
-const refreshChangedWorkspace = async (workspacePath: string) => {
+const samePath = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+const refreshChangedWorkspace = async (workspacePath: string, changedPaths: string[]) => {
   if (workspace.workspace?.path !== workspacePath) return;
   const previous = preview.file;
   await workspace.refreshLoadedDirectories();
-  if (!previous) return;
+  if (!previous || !changedPaths.some((path) => samePath(path, previous.path))) return;
+  if (markdownEditor.sessions[previous.path]?.dirty) {
+    markdownEditor.markExternalChanged(previous.path);
+    return;
+  }
   try {
     const current = await getFileInfo(previous.path);
     if (current.size !== previous.size || current.modifiedAt !== previous.modifiedAt) {
@@ -421,6 +539,17 @@ const refreshChangedWorkspace = async (workspacePath: string) => {
     preview.clear();
     preview.file = previous;
     preview.error = `正在预览的文件已不可用：${error instanceof Error ? error.message : String(error)}`;
+  }
+};
+
+const reloadMarkdown = async () => {
+  const previous = preview.file;
+  if (!previous) return;
+  try {
+    markdownEditor.discardChanges(previous.path);
+    await preview.preview(await getFileInfo(previous.path));
+  } catch (error) {
+    ElMessage.error(`重新加载失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -436,7 +565,7 @@ const handleMenuAction = (action: string) => {
       showHistoryDialog('files');
       break;
     case 'close-tab':
-      void tabs.close();
+      closeActiveTab();
       break;
     case 'copy':
       if (selectedEntry.value) copySelectedEntry(selectedEntry.value);
@@ -497,8 +626,8 @@ onMounted(() => {
   void listen<string>('menu-action', (event) => handleMenuAction(event.payload)).then(
     (unlisten) => (unlistenMenu = unlisten),
   );
-  void listen<{ workspacePath: string }>('workspace-files-changed', (event) => {
-    void refreshChangedWorkspace(event.payload.workspacePath);
+  void listen<{ workspacePath: string; paths: string[] }>('workspace-files-changed', (event) => {
+    void refreshChangedWorkspace(event.payload.workspacePath, event.payload.paths);
   }).then((unlisten) => (unlistenFileWatch = unlisten));
 });
 

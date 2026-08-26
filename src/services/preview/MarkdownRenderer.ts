@@ -6,6 +6,11 @@ import type { PreviewRenderer } from './types';
 
 const extensions = new Set(['md', 'markdown', 'mdx']);
 
+export const renderMarkdownSource = async (source: string) => {
+  const html = await marked.parse(source, { async: true, gfm: true, breaks: false });
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+};
+
 export class MarkdownRenderer implements PreviewRenderer {
   readonly id = 'markdown';
 
@@ -15,10 +20,10 @@ export class MarkdownRenderer implements PreviewRenderer {
 
   async render(file: FileInfo): Promise<PreviewContent> {
     const source = await readTextFile(file.path);
-    const html = await marked.parse(source, { async: true, gfm: true, breaks: false });
     return {
       kind: 'markdown',
-      html: DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }),
+      source,
+      html: await renderMarkdownSource(source),
     };
   }
 }

@@ -14,6 +14,7 @@ use crate::error::AppError;
 #[serde(rename_all = "camelCase")]
 struct WorkspaceFilesChanged {
     workspace_path: String,
+    paths: Vec<String>,
 }
 
 pub struct FileWatchService {
@@ -53,14 +54,14 @@ impl FileWatchService {
             return Ok(());
         }
 
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel::<Vec<PathBuf>>();
         let watched_root = Arc::clone(&self.watched_root);
         let app_handle = app.clone();
         thread::spawn(move || dispatch_changes(receiver, watched_root, app_handle));
         let watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
-                if event.is_ok() {
-                    let _ = sender.send(());
+                if let Ok(event) = event {
+                    let _ = sender.send(event.paths);
                 }
             },
             Config::default(),
@@ -71,19 +72,28 @@ impl FileWatchService {
 }
 
 fn dispatch_changes(
-    receiver: mpsc::Receiver<()>,
+    receiver: mpsc::Receiver<Vec<PathBuf>>,
     watched_root: Arc<Mutex<Option<PathBuf>>>,
     app: AppHandle,
 ) {
-    while receiver.recv().is_ok() {
+    while let Ok(mut paths) = receiver.recv() {
         thread::sleep(Duration::from_millis(500));
-        while receiver.try_recv().is_ok() {}
+        while let Ok(mut pending_paths) = receiver.try_recv() {
+            paths.append(&mut pending_paths);
+        }
         let root = watched_root.lock().expect("文件监听路径锁已损坏").clone();
         if let Some(root) = root {
+            paths.sort();
+            paths.dedup();
             let _ = app.emit(
                 "workspace-files-changed",
                 WorkspaceFilesChanged {
                     workspace_path: root.to_string_lossy().to_string(),
+                    paths: paths
+                        .into_iter()
+                        .filter(|path| path.starts_with(&root))
+                        .map(|path| path.to_string_lossy().to_string())
+                        .collect(),
                 },
             );
         }

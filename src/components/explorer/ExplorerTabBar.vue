@@ -54,13 +54,18 @@ import type { SessionTab } from '../../types/session';
 type ContextMenu = { id: string; index: number; x: number; y: number };
 type CloseScope = 'left' | 'right' | 'others' | 'all';
 
-const emit = defineEmits<{ chooseWorkspace: [] }>();
+const emit = defineEmits<{
+  chooseWorkspace: [];
+  activate: [id: string];
+  close: [id: string];
+  closeTabs: [scope: CloseScope, id: string];
+}>();
 const tabs = useTabsStore();
 const contextMenu = ref<ContextMenu | null>(null);
 const contextMenuElement = ref<HTMLElement>();
 
-const activateTab = (id: string) => void tabs.activate(id);
-const closeTab = (id: string) => void tabs.close(id);
+const activateTab = (id: string) => emit('activate', id);
+const closeTab = (id: string) => emit('close', id);
 const openContextMenu = (tab: SessionTab, event: MouseEvent) => {
   contextMenu.value = {
     id: tab.id,
@@ -73,10 +78,7 @@ const closeTabs = (scope: CloseScope) => {
   const target = contextMenu.value;
   contextMenu.value = null;
   if (!target) return;
-  if (scope === 'left') void tabs.closeLeft(target.id);
-  if (scope === 'right') void tabs.closeRight(target.id);
-  if (scope === 'others') void tabs.closeOthers(target.id);
-  if (scope === 'all') void tabs.closeAll();
+  emit('closeTabs', scope, target.id);
 };
 const closeOnOutsidePointer = (event: PointerEvent) => {
   if (contextMenuElement.value?.contains(event.target as Node)) return;

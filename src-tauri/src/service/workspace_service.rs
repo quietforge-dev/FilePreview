@@ -59,6 +59,20 @@ impl WorkspaceService {
         Ok(file)
     }
 
+    pub async fn write_markdown_file(
+        &self,
+        path: String,
+        content: String,
+    ) -> Result<FileInfo, AppError> {
+        let root = self.workspace_root()?;
+        let target = self.authorized_path(&root, Some(&path))?;
+        tokio::task::spawn_blocking(move || {
+            filesystem::write_markdown_file_atomically(&target, &content)
+        })
+        .await
+        .map_err(|_| AppError::FileWriteTaskFailed)?
+    }
+
     pub async fn convert_office_to_pdf(&self, path: String) -> Result<Vec<u8>, AppError> {
         let root = self.workspace_root()?;
         let target = self.authorized_path(&root, Some(&path))?;
@@ -253,5 +267,33 @@ mod tests {
         assert_eq!(results[0].name, "example.md");
         assert_eq!(results[0].line_number, 2);
         fs::remove_dir_all(root).expect("应清理搜索测试目录");
+    }
+
+    #[tokio::test]
+    async fn writes_markdown_file_inside_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-write-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建写入测试工作区");
+        let file = root.join("example.md");
+        fs::write(&file, "# 初始内容\n").expect("应写入初始 Markdown 文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开写入测试工作区");
+        let saved = service
+            .write_markdown_file(
+                file.to_string_lossy().to_string(),
+                "# 保存后的内容\n".into(),
+            )
+            .await
+            .expect("应保存 Markdown 文件");
+
+        assert_eq!(saved.name, "example.md");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "# 保存后的内容\n");
+        fs::remove_dir_all(root).expect("应清理写入测试目录");
     }
 }

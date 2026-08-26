@@ -18,10 +18,14 @@ pub enum AppError {
     NotDirectory,
     #[error("不能读取目录")]
     IsDirectory,
+    #[error("只支持编辑 Markdown 文件")]
+    NotMarkdownFile,
     #[error("不能将文件夹复制到它自身或其子目录中")]
     CannotCopyIntoSelf,
     #[error("文件复制任务失败")]
     CopyTaskFailed,
+    #[error("文件保存任务失败")]
+    FileWriteTaskFailed,
     #[error("搜索关键词不能为空")]
     EmptySearchQuery,
     #[error("文件内容搜索任务失败")]
