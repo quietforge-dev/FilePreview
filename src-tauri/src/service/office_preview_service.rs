@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write,
     fs, io,
     path::{Path, PathBuf},
     process::Command,
@@ -8,6 +9,9 @@ use std::{
 use crate::{error::AppError, filesystem, model::OfficeRuntimeStatus};
 
 const MAX_PREVIEW_FILE_SIZE_BYTES: u64 = 25 * 1024 * 1024;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub fn runtime_status() -> OfficeRuntimeStatus {
     OfficeRuntimeStatus {
@@ -20,23 +24,23 @@ pub async fn install_libreoffice() -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
         tokio::task::spawn_blocking(|| {
-            let status = Command::new("winget")
-                .args([
-                    "install",
-                    "--id",
-                    "TheDocumentFoundation.LibreOffice",
-                    "--exact",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                ])
-                .status()
-                .map_err(|error| {
-                    if error.kind() == io::ErrorKind::NotFound {
-                        AppError::WingetNotAvailable
-                    } else {
-                        AppError::Io(error)
-                    }
-                })?;
+            let mut command = Command::new("winget");
+            command.args([
+                "install",
+                "--id",
+                "TheDocumentFoundation.LibreOffice",
+                "--exact",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ]);
+            hide_console_window(&mut command);
+            let status = command.status().map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound {
+                    AppError::WingetNotAvailable
+                } else {
+                    AppError::Io(error)
+                }
+            })?;
             if status.success() {
                 Ok(())
             } else {
@@ -76,11 +80,35 @@ fn convert_to_pdf_blocking(
     fs::create_dir_all(&output_directory)?;
 
     let result = (|| {
-        let output = Command::new(soffice)
-            .args(["--headless", "--convert-to", "pdf", "--outdir"])
+        let input = output_directory.join(format!(
+            "source.{}",
+            source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .ok_or_else(|| AppError::LibreOfficeConversionFailed(
+                    "无法确定 Office 文件扩展名".into()
+                ))?
+        ));
+        fs::copy(source, &input)?;
+
+        let profile = output_directory.join("profile");
+        let profile_url = file_url(&profile)?;
+        let mut command = Command::new(soffice);
+        command
+            .args([
+                "--headless",
+                "--nologo",
+                "--nodefault",
+                "--nofirststartwizard",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+            ])
             .arg(&output_directory)
-            .arg(source)
-            .output()?;
+            .arg(format!("-env:UserInstallation={profile_url}"))
+            .arg(&input);
+        hide_console_window(&mut command);
+        let output = command.output()?;
         if !output.status.success() {
             let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(AppError::LibreOfficeConversionFailed(
@@ -117,16 +145,43 @@ fn unique_output_directory(cache_root: &Path) -> PathBuf {
     cache_root.join(format!("office-{timestamp}-{}", std::process::id()))
 }
 
-fn find_soffice() -> Option<PathBuf> {
-    soffice_candidates().into_iter().find(|candidate| {
-        if candidate.components().count() > 1 && !candidate.is_file() {
-            return false;
+fn file_url(path: &Path) -> Result<String, AppError> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| AppError::LibreOfficeConversionFailed("临时预览路径包含无效字符".into()))?
+        .replace('\\', "/");
+    let mut url = String::from("file:///");
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'-' | b'_' | b'.' | b'~') {
+            url.push(byte as char);
+        } else {
+            write!(url, "%{byte:02X}").expect("写入字符串不会失败");
         }
-        Command::new(candidate)
-            .arg("--version")
-            .output()
-            .is_ok_and(|output| output.status.success())
-    })
+    }
+    Ok(url)
+}
+
+fn find_soffice() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        return soffice_candidates()
+            .into_iter()
+            .find(|candidate| candidate.is_file());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        soffice_candidates()
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .or_else(|| {
+                Command::new("soffice")
+                    .arg("--version")
+                    .output()
+                    .is_ok_and(|output| output.status.success())
+                    .then(|| PathBuf::from("soffice"))
+            })
+    }
 }
 
 fn soffice_candidates() -> Vec<PathBuf> {
@@ -144,7 +199,6 @@ fn soffice_candidates() -> Vec<PathBuf> {
                 );
             }
         }
-        candidates.push(PathBuf::from("soffice.exe"));
     }
 
     #[cfg(target_os = "macos")]
@@ -152,13 +206,19 @@ fn soffice_candidates() -> Vec<PathBuf> {
         candidates.push(PathBuf::from(
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
         ));
-        candidates.push(PathBuf::from("soffice"));
     }
 
     #[cfg(target_os = "linux")]
-    {
-        candidates.push(PathBuf::from("soffice"));
-    }
+    {}
 
     candidates
+}
+
+fn hide_console_window(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
 }

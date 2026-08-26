@@ -7,7 +7,7 @@
 
 <script setup lang="ts">
 import { GlobalWorkerOptions, getDocument, type PDFDocumentLoadingTask } from 'pdfjs-dist';
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -19,6 +19,7 @@ const container = ref<HTMLElement>();
 const message = ref('正在加载 PDF...');
 let loadingTask: PDFDocumentLoadingTask | undefined;
 let renderVersion = 0;
+let mounted = false;
 
 const render = async () => {
   const version = ++renderVersion;
@@ -40,6 +41,7 @@ const render = async () => {
     }
     const width = Math.max(target.clientWidth - 48, 320);
     for (let number = 1; number <= pdf.numPages; number += 1) {
+      message.value = `正在渲染第 ${number} / ${pdf.numPages} 页...`;
       const page = await pdf.getPage(number);
       if (version !== renderVersion) return;
       const baseViewport = page.getViewport({ scale: 1 });
@@ -61,9 +63,14 @@ const render = async () => {
 
 watch(
   () => props.data,
-  () => void render(),
-  { immediate: true },
+  () => {
+    if (mounted) void render();
+  },
 );
+onMounted(() => {
+  mounted = true;
+  void render();
+});
 onBeforeUnmount(() => {
   renderVersion += 1;
   void loadingTask?.destroy();
