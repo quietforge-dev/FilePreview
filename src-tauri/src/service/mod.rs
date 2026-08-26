@@ -1,3 +1,4 @@
+pub mod app_settings_service;
 pub mod file_watch_service;
 pub mod history_service;
 pub mod office_preview_service;

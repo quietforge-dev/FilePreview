@@ -47,7 +47,12 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("filepreview-{}/history-{suffix}.db", process::id()));
         let pool = connect(&path).await.expect("数据库迁移应成功");
-        for table in ["workspace_history", "file_history", "session_tabs"] {
+        for table in [
+            "workspace_history",
+            "file_history",
+            "session_tabs",
+            "app_settings",
+        ] {
             let exists: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
             )

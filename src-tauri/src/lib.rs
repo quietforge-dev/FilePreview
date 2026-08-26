@@ -50,6 +50,8 @@ pub fn run() {
             commands::app::app_version,
             commands::app::open_external_url,
             commands::app::open_libreoffice_download_page,
+            commands::app_settings::get_app_setting,
+            commands::app_settings::set_app_setting,
         ])
         .run(tauri::generate_context!())
         .expect("运行 FilePreview 失败");

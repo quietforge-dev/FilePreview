@@ -142,6 +142,7 @@ import RecentHistoryDialog from '../components/explorer/RecentHistoryDialog.vue'
 import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
+import { useAppSettingsStore } from '../stores/appSettings';
 import { useSearchStore } from '../stores/search';
 import { useTabsStore } from '../stores/tabs';
 import type { FileInfo } from '../types/file';
@@ -152,6 +153,7 @@ import PreviewPanel from '../components/preview/PreviewPanel.vue';
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
+const appSettings = useAppSettingsStore();
 const search = useSearchStore();
 const tabs = useTabsStore();
 const appVersion = ref('0.0.5');
@@ -250,6 +252,9 @@ const openContextMenu = (file: FileInfo, event: MouseEvent) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const maxFolderWidth = () => window.innerWidth - MIN_PREVIEW_WIDTH - RESIZER_TOTAL_WIDTH;
+const clampFolderWidth = (width: number) =>
+  clamp(width, MIN_FOLDER_WIDTH, Math.max(MIN_FOLDER_WIDTH, maxFolderWidth()));
 const startResize = (event: PointerEvent) => {
   if (event.button !== 0) return;
   event.preventDefault();
@@ -260,14 +265,15 @@ const startResize = (event: PointerEvent) => {
 };
 const resizePane = (event: PointerEvent) => {
   if (!activeResize.value) return;
-  const maxWidth = window.innerWidth - MIN_PREVIEW_WIDTH - RESIZER_TOTAL_WIDTH;
-  folderWidth.value = clamp(event.clientX - 4, MIN_FOLDER_WIDTH, maxWidth);
+  folderWidth.value = clampFolderWidth(event.clientX - 4);
 };
 const stopResize = () => {
+  const shouldPersistWidth = activeResize.value;
   activeResize.value = false;
   document.documentElement.style.cursor = '';
   document.removeEventListener('pointermove', resizePane);
   document.removeEventListener('pointerup', stopResize);
+  if (shouldPersistWidth) void appSettings.saveFolderPaneWidth(folderWidth.value);
 };
 const closeContextMenuOnOutsideClick = (event: PointerEvent) => {
   if (contextMenuElement.value?.contains(event.target as Node)) return;
@@ -485,6 +491,9 @@ onMounted(() => {
     AUTO_UPDATE_INTERVAL_MS,
   );
   void tabs.restore();
+  void appSettings.restoreFolderPaneWidth().then((width) => {
+    if (width !== null) folderWidth.value = clampFolderWidth(width);
+  });
   void listen<string>('menu-action', (event) => handleMenuAction(event.payload)).then(
     (unlisten) => (unlistenMenu = unlisten),
   );
