@@ -193,6 +193,16 @@ export const useTabsStore = defineStore('tabs', {
     async closeAll() {
       await this.closeMatching(() => true);
     },
+    async closeFilesAtPath(path: string) {
+      const normalized = path.toLowerCase();
+      const isDeletedPath = (candidate: string) =>
+        candidate.toLowerCase() === normalized ||
+        candidate.toLowerCase().startsWith(`${normalized}\\`) ||
+        candidate.toLowerCase().startsWith(`${normalized}/`);
+      await this.closeMatching(
+        (tab) => tab.kind === 'file' && !!tab.filePath && isDeletedPath(tab.filePath),
+      );
+    },
     async closeMatching(
       shouldClose: (tab: SessionTab, position: number) => boolean,
       preferredActiveId?: string,

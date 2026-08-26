@@ -89,3 +89,19 @@ pub async fn copy_entry(
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn delete_entry(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.workspace.delete_entry(path).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn open_entry_with_default_application(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .workspace
+        .open_entry_with_default_application(path)
+        .map_err(Into::into)
+}

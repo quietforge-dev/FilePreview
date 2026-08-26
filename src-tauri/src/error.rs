@@ -22,8 +22,18 @@ pub enum AppError {
     NotMarkdownFile,
     #[error("不能将文件夹复制到它自身或其子目录中")]
     CannotCopyIntoSelf,
+    #[error("不能删除当前工作区根目录")]
+    CannotDeleteWorkspaceRoot,
+    #[error("不支持操作符号链接")]
+    SymbolicLinkNotSupported,
     #[error("文件复制任务失败")]
     CopyTaskFailed,
+    #[error("文件删除任务失败")]
+    DeleteTaskFailed,
+    #[error("移入系统回收站失败：{0}")]
+    Trash(String),
+    #[error("无法使用系统默认程序打开：{0}")]
+    SystemOpen(String),
     #[error("文件保存任务失败")]
     FileWriteTaskFailed,
     #[error("搜索关键词不能为空")]

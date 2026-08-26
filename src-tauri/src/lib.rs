@@ -23,6 +23,8 @@ pub fn run() {
         .expect("初始化 FilePreview 数据库失败");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
@@ -41,6 +43,8 @@ pub fn run() {
             commands::app::install_libreoffice,
             commands::workspace::convert_office_to_pdf,
             commands::workspace::copy_entry,
+            commands::workspace::delete_entry,
+            commands::workspace::open_entry_with_default_application,
             commands::history::record_browsed_file,
             commands::history::list_recent_workspaces,
             commands::history::list_recent_files,

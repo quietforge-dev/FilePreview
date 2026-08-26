@@ -64,7 +64,7 @@
           :workspace="workspace.workspace"
           :entries="workspace.rootEntries"
           :path="workspace.currentDirectory"
-          :selected-path="preview.file?.path"
+          :selected-path="selectedEntry?.path ?? preview.file?.path"
           :filter="workspace.filter"
           @open="openDirectory"
           @select="selectEntry"
@@ -88,28 +88,22 @@
         @reload-markdown="reloadMarkdown"
       />
     </div>
-    <div
+    <FileContextMenu
       v-if="contextMenu"
-      ref="contextMenuElement"
-      class="file-context-menu"
-      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
-      @contextmenu.prevent
-    >
-      <button type="button" @click="copySelectedEntry(contextMenu.file)">
-        <Copy :size="16" />复制
-      </button>
-      <button
-        type="button"
-        :disabled="!copiedEntry || !workspace.currentDirectory"
-        @click="
-          pasteEntry(
-            contextMenu.file.isDirectory ? contextMenu.file.path : workspace.currentDirectory,
-          )
-        "
-      >
-        <ClipboardPaste :size="16" />粘贴到此处
-      </button>
-    </div>
+      :file="contextMenu.file"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :can-paste="!!copiedEntry && !!workspace.currentDirectory"
+      @open="openContextEntry"
+      @reveal="revealContextEntry"
+      @system-open="openContextEntryWithSystem"
+      @copy-path="copyContextEntryPath"
+      @copy="copyContextEntry"
+      @paste="pasteContextEntry"
+      @refresh="refresh"
+      @delete="deleteContextEntry"
+      @close="contextMenu = null"
+    />
   </main>
   <AppUpdateDialog
     v-model:visible="updateVisible"
@@ -136,14 +130,20 @@
 <script setup lang="ts">
 import { Files, FolderOpened, Refresh, Search, WarningFilled } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ClipboardPaste, Copy, Github, RefreshCw } from 'lucide-vue-next';
+import { Github, RefreshCw } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getAppVersion, openProjectUrl } from '../api/app';
 import { getFileInfo, type ContentSearchResult } from '../api/file';
+import {
+  copyPathToClipboard,
+  openWithDefaultApplication,
+  revealInFileManager,
+} from '../api/system';
 import AppUpdateDialog from '../components/app/AppUpdateDialog.vue';
 import ContentSearchDialog from '../components/search/ContentSearchDialog.vue';
 import ExplorerTabBar from '../components/explorer/ExplorerTabBar.vue';
+import FileContextMenu from '../components/explorer/FileContextMenu.vue';
 import RecentHistoryDialog from '../components/explorer/RecentHistoryDialog.vue';
 import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -191,7 +191,6 @@ const selectedEntry = ref<FileInfo | null>(null);
 const copiedEntry = ref<FileInfo | null>(null);
 const contextMenu = ref<FileContextMenu | null>(null);
 const historyDialog = ref<HistoryDialog | null>(null);
-const contextMenuElement = ref<HTMLElement>();
 const layoutStyle = computed(() => ({
   '--folder-width': `${folderWidth.value}px`,
 }));
@@ -337,6 +336,10 @@ const copySelectedEntry = (entry: FileInfo) => {
   contextMenu.value = null;
   ElMessage.success(`已复制 ${entry.name}`);
 };
+const copyContextEntry = () => {
+  const entry = contextEntry();
+  if (entry) copySelectedEntry(entry);
+};
 const pasteEntry = async (destinationDirectory = workspace.currentDirectory) => {
   const source = copiedEntry.value;
   contextMenu.value = null;
@@ -349,12 +352,102 @@ const pasteEntry = async (destinationDirectory = workspace.currentDirectory) => 
     ElMessage.error(`粘贴失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
+const contextEntry = () => contextMenu.value?.file ?? selectedEntry.value;
+const openContextEntry = async () => {
+  const entry = contextEntry();
+  if (!entry) return;
+  if (entry.isDirectory) await openDirectory(entry.path);
+  else await openFile(entry);
+};
+const revealContextEntry = async () => {
+  const entry = contextEntry();
+  if (!entry || entry.isDirectory) return;
+  try {
+    await revealInFileManager(entry.path);
+  } catch (error) {
+    ElMessage.error(
+      `无法在文件夹中显示：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
+const openContextEntryWithSystem = async () => {
+  const entry = contextEntry();
+  if (!entry) return;
+  try {
+    await openWithDefaultApplication(entry.path);
+  } catch (error) {
+    ElMessage.error(`无法使用系统打开：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+const copyContextEntryPath = async () => {
+  const entry = contextEntry();
+  if (!entry) return;
+  try {
+    await copyPathToClipboard(entry.path);
+    ElMessage.success('路径已复制到剪贴板');
+  } catch (error) {
+    ElMessage.error(`复制路径失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+const pasteContextEntry = () => {
+  const entry = contextEntry();
+  void pasteEntry(entry?.isDirectory ? entry.path : workspace.currentDirectory);
+};
+const isPathAtOrBelow = (candidate: string, parent: string) => {
+  const normalizedCandidate = candidate.toLowerCase();
+  const normalizedParent = parent.toLowerCase();
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedCandidate.startsWith(`${normalizedParent}\\`) ||
+    normalizedCandidate.startsWith(`${normalizedParent}/`)
+  );
+};
+const deleteContextEntry = async () => {
+  const entry = contextEntry();
+  if (!entry) return;
+  const deletedFilePaths = filePathsForTabs(tabs.tabs).filter((path) =>
+    isPathAtOrBelow(path, entry.path),
+  );
+  if (!(await confirmMarkdownChanges(deletedFilePaths))) return;
+
+  try {
+    await ElMessageBox.confirm(
+      entry.isDirectory
+        ? `“${entry.name}”及其所有内容会移入系统回收站。`
+        : `“${entry.name}”会移入系统回收站。`,
+      entry.isDirectory ? '删除文件夹' : '删除文件',
+      {
+        confirmButtonText: '移入回收站',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+  } catch {
+    return;
+  }
+
+  try {
+    await workspace.deleteEntry(entry.path);
+    await tabs.closeFilesAtPath(entry.path);
+    removeMarkdownSessions(deletedFilePaths);
+    if (preview.file && isPathAtOrBelow(preview.file.path, entry.path)) preview.clear();
+    if (selectedEntry.value && isPathAtOrBelow(selectedEntry.value.path, entry.path)) {
+      selectedEntry.value = null;
+    }
+    if (copiedEntry.value && isPathAtOrBelow(copiedEntry.value.path, entry.path)) {
+      copiedEntry.value = null;
+    }
+    ElMessage.success(entry.isDirectory ? '文件夹已移入系统回收站' : '文件已移入系统回收站');
+  } catch (error) {
+    ElMessage.error(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
 const openContextMenu = (file: FileInfo, event: MouseEvent) => {
   selectedEntry.value = file;
   contextMenu.value = {
     file,
-    x: Math.min(event.clientX, window.innerWidth - 176),
-    y: Math.min(event.clientY, window.innerHeight - 100),
+    x: event.clientX,
+    y: event.clientY,
   };
 };
 
@@ -381,10 +474,6 @@ const stopResize = () => {
   document.removeEventListener('pointermove', resizePane);
   document.removeEventListener('pointerup', stopResize);
   if (shouldPersistWidth) void appSettings.saveFolderPaneWidth(folderWidth.value);
-};
-const closeContextMenuOnOutsideClick = (event: PointerEvent) => {
-  if (contextMenuElement.value?.contains(event.target as Node)) return;
-  contextMenu.value = null;
 };
 const handleKeyboardShortcut = (event: KeyboardEvent) => {
   const target = event.target as HTMLElement | null;
@@ -608,7 +697,6 @@ let unlistenMenu: UnlistenFn | undefined;
 let unlistenFileWatch: UnlistenFn | undefined;
 
 onMounted(() => {
-  document.addEventListener('pointerdown', closeContextMenuOnOutsideClick);
   window.addEventListener('keydown', handleKeyboardShortcut);
   void getAppVersion().then((value) => (appVersion.value = value));
   initialUpdateTimer = window.setTimeout(
@@ -633,7 +721,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopResize();
-  document.removeEventListener('pointerdown', closeContextMenuOnOutsideClick);
   window.removeEventListener('keydown', handleKeyboardShortcut);
   if (initialUpdateTimer !== undefined) window.clearTimeout(initialUpdateTimer);
   if (periodicUpdateTimer !== undefined) window.clearInterval(periodicUpdateTimer);
@@ -754,35 +841,5 @@ onUnmounted(() => {
 }
 .folder-pane :deep(.tree) {
   padding: 8px 5px;
-}
-.file-context-menu {
-  background: #fff;
-  border: 1px solid #d8dee8;
-  box-shadow: 0 8px 20px rgb(15 23 42 / 16%);
-  min-width: 168px;
-  padding: 4px;
-  position: fixed;
-  z-index: 20;
-}
-.file-context-menu button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  color: #344054;
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 9px;
-  text-align: left;
-  width: 100%;
-}
-.file-context-menu button:hover:not(:disabled) {
-  background: #f1f5f9;
-}
-.file-context-menu button:disabled {
-  color: #98a2b3;
-  cursor: not-allowed;
 }
 </style>

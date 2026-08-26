@@ -100,6 +100,18 @@ pub fn copy_entry(source: &Path, destination_directory: &Path) -> Result<FileInf
     file_info(&destination)
 }
 
+pub fn move_entry_to_trash(path: &Path) -> Result<(), AppError> {
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Err(AppError::SymbolicLinkNotSupported);
+    }
+    trash::delete(path).map_err(|error| AppError::Trash(error.to_string()))
+}
+
+pub fn open_with_default_application(path: &Path) -> Result<(), AppError> {
+    tauri_plugin_opener::open_path(path, None::<&str>)
+        .map_err(|error| AppError::SystemOpen(error.to_string()))
+}
+
 pub fn file_info(path: &Path) -> Result<FileInfo, AppError> {
     let metadata = fs::metadata(path)?;
     let name = path

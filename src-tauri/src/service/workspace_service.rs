@@ -101,6 +101,28 @@ impl WorkspaceService {
             .map_err(|_| AppError::CopyTaskFailed)?
     }
 
+    pub async fn delete_entry(&self, path: String) -> Result<(), AppError> {
+        let root = self.workspace_root()?;
+        let requested = PathBuf::from(&path);
+        if fs::symlink_metadata(&requested)?.file_type().is_symlink() {
+            return Err(AppError::SymbolicLinkNotSupported);
+        }
+        let target = self.authorized_path(&root, Some(&path))?;
+        if target == root {
+            return Err(AppError::CannotDeleteWorkspaceRoot);
+        }
+
+        tokio::task::spawn_blocking(move || filesystem::move_entry_to_trash(&target))
+            .await
+            .map_err(|_| AppError::DeleteTaskFailed)?
+    }
+
+    pub fn open_entry_with_default_application(&self, path: String) -> Result<(), AppError> {
+        let root = self.workspace_root()?;
+        let target = self.authorized_path(&root, Some(&path))?;
+        filesystem::open_with_default_application(&target)
+    }
+
     pub async fn search_contents(
         &self,
         query: String,
@@ -295,5 +317,55 @@ mod tests {
         assert_eq!(saved.name, "example.md");
         assert_eq!(fs::read_to_string(&file).unwrap(), "# 保存后的内容\n");
         fs::remove_dir_all(root).expect("应清理写入测试目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_deleting_the_workspace_root() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-delete-root-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建删除测试工作区");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开删除测试工作区");
+        let error = service
+            .delete_entry(root.to_string_lossy().to_string())
+            .await
+            .expect_err("不应允许删除工作区根目录");
+
+        assert!(matches!(
+            error,
+            crate::error::AppError::CannotDeleteWorkspaceRoot
+        ));
+        fs::remove_dir_all(root).expect("应清理删除测试目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_deleting_a_path_outside_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-delete-workspace-{suffix}"));
+        let outside = std::env::temp_dir().join(format!("filepreview-delete-outside-{suffix}.txt"));
+        fs::create_dir_all(&root).expect("应创建删除测试工作区");
+        fs::write(&outside, "outside").expect("应写入工作区外测试文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开删除测试工作区");
+        let error = service
+            .delete_entry(outside.to_string_lossy().to_string())
+            .await
+            .expect_err("不应允许删除工作区外文件");
+
+        assert!(matches!(error, crate::error::AppError::OutsideWorkspace));
+        fs::remove_file(outside).expect("应清理工作区外测试文件");
+        fs::remove_dir_all(root).expect("应清理删除测试目录");
     }
 }

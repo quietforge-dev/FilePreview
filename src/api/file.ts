@@ -28,3 +28,5 @@ export const searchFileContents = (query: string) =>
 
 export const copyEntry = (source: string, destinationDirectory: string) =>
   invoke<FileInfo>('copy_entry', { source, destinationDirectory });
+
+export const deleteEntry = (path: string) => invoke<void>('delete_entry', { path });

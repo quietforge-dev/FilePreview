@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { open } from '@tauri-apps/plugin-dialog';
-import { copyEntry, listDirectory, openWorkspace } from '../api/file';
+import { copyEntry, deleteEntry, listDirectory, openWorkspace } from '../api/file';
 import type { FileInfo, WorkspaceInfo } from '../types/file';
 import { useHistoryStore } from './history';
 
@@ -132,6 +132,41 @@ export const useWorkspaceStore = defineStore('workspace', {
       } finally {
         this.loading = false;
       }
+    },
+    async deleteEntry(path: string) {
+      this.loading = true;
+      this.error = '';
+      try {
+        await deleteEntry(path);
+        this.removeDeletedEntry(path);
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    removeDeletedEntry(path: string) {
+      const isDeletedPath = (candidate: string) =>
+        candidate.toLowerCase() === path.toLowerCase() ||
+        candidate.toLowerCase().startsWith(`${path.toLowerCase()}\\`) ||
+        candidate.toLowerCase().startsWith(`${path.toLowerCase()}/`);
+      const directoryEntries = Object.fromEntries(
+        Object.entries(this.directoryEntries)
+          .filter(([directory]) => !isDeletedPath(directory))
+          .map(([directory, entries]) => [
+            directory,
+            entries.filter((entry) => !isDeletedPath(entry.path)),
+          ]),
+      );
+      this.directoryEntries = directoryEntries;
+      this.loadingDirectories = Object.fromEntries(
+        Object.entries(this.loadingDirectories).filter(([directory]) => !isDeletedPath(directory)),
+      );
+      if (isDeletedPath(this.currentDirectory)) {
+        this.currentDirectory = this.workspace?.path ?? '';
+      }
+      this.entries = this.directoryEntries[this.currentDirectory] ?? [];
     },
   },
 });

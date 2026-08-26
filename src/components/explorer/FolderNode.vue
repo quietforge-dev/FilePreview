@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { CaretBottom, CaretRight, Document, Folder, FolderOpened } from '@element-plus/icons-vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { FileInfo } from '../../types/file';
 
@@ -77,6 +77,21 @@ const filteredEntries = computed(() => {
     ? props.entries.filter((entry) => entry.name.toLowerCase().includes(keyword))
     : props.entries;
 });
+
+watch(
+  () => workspace.directoryEntries,
+  () => {
+    const knownDirectories = new Set(
+      Object.values(workspace.directoryEntries)
+        .flat()
+        .filter((entry) => entry.isDirectory)
+        .map((entry) => entry.path),
+    );
+    const next = new Set([...expandedPaths.value].filter((path) => knownDirectories.has(path)));
+    if (next.size !== expandedPaths.value.size) expandedPaths.value = next;
+  },
+  { deep: true },
+);
 
 const toggle = async (path: string) => {
   const next = new Set(expandedPaths.value);
