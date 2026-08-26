@@ -20,6 +20,12 @@ pub enum AppError {
     CannotCopyIntoSelf,
     #[error("文件复制任务失败")]
     CopyTaskFailed,
+    #[error("搜索关键词不能为空")]
+    EmptySearchQuery,
+    #[error("文件内容搜索任务失败")]
+    SearchTaskFailed,
+    #[error("文件系统监听错误：{0}")]
+    FileWatch(#[from] notify::Error),
     #[error("文件过大，最大支持 {0} MB")]
     FileTooLarge(u64),
     #[error("未检测到 LibreOffice。请安装后重新尝试预览 Office 文件")]

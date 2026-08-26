@@ -82,8 +82,34 @@
           placeholder="搜索当前目录"
           clearable
         />
+        <el-tooltip content="文件内容搜索" placement="bottom">
+          <el-button :icon="Search" circle aria-label="文件内容搜索" @click="search.open" />
+        </el-tooltip>
       </div>
     </header>
+    <nav v-if="tabs.tabs.length" class="tab-bar" aria-label="打开的标签">
+      <button
+        v-for="tab in tabs.tabs"
+        :key="tab.id"
+        class="workspace-tab"
+        :class="{ active: tab.id === tabs.activeId }"
+        type="button"
+        @click="activateTab(tab.id)"
+      >
+        <el-icon><component :is="tab.kind === 'workspace' ? FolderOpened : Document" /></el-icon>
+        <span>{{ tab.kind === 'workspace' ? tab.workspaceName : tab.fileName }}</span>
+        <span
+          class="tab-close"
+          role="button"
+          :aria-label="`关闭 ${tab.kind === 'workspace' ? tab.workspaceName : tab.fileName}`"
+          @click.stop="closeTab(tab.id)"
+          ><el-icon><Close /></el-icon
+        ></span>
+      </button>
+      <el-tooltip content="打开文件夹到新标签" placement="bottom">
+        <el-button :icon="Plus" circle aria-label="新建工作区标签" @click="chooseWorkspace" />
+      </el-tooltip>
+    </nav>
     <div v-if="workspace.error" class="error-bar">
       <el-icon><WarningFilled /></el-icon>{{ workspace.error }}
     </div>
@@ -151,15 +177,26 @@
     @install="installUpdate"
     @manual-download="openReleasePage"
   />
+  <ContentSearchDialog
+    v-model="search.visible"
+    v-model:query="search.query"
+    :results="search.results"
+    :loading="search.loading"
+    :error="search.error"
+    @search="search.search"
+    @select="openSearchResult"
+  />
 </template>
 
 <script setup lang="ts">
 import {
   Clock,
+  Close,
   Delete,
   Document,
   Files,
   FolderOpened,
+  Plus,
   Refresh,
   Search,
   WarningFilled,
@@ -167,11 +204,16 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ClipboardPaste, Copy, Github, RefreshCw } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getAppVersion, openProjectUrl } from '../api/app';
+import { getFileInfo, type ContentSearchResult } from '../api/file';
 import AppUpdateDialog from '../components/app/AppUpdateDialog.vue';
+import ContentSearchDialog from '../components/search/ContentSearchDialog.vue';
 import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
+import { useSearchStore } from '../stores/search';
+import { useTabsStore } from '../stores/tabs';
 import type { FileInfo } from '../types/file';
 import { useAppUpdater } from '../composables/useAppUpdater';
 import FolderTree from '../components/explorer/FolderTree.vue';
@@ -180,7 +222,9 @@ import PreviewPanel from '../components/preview/PreviewPanel.vue';
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const history = useHistoryStore();
-const appVersion = ref('0.0.4');
+const search = useSearchStore();
+const tabs = useTabsStore();
+const appVersion = ref('0.0.5');
 const updater = useAppUpdater();
 const {
   checking: updateChecking,
@@ -211,20 +255,22 @@ const layoutStyle = computed(() => ({
 }));
 
 const chooseWorkspace = async () => {
-  await workspace.chooseWorkspace();
+  await tabs.chooseWorkspace();
   selectedEntry.value = null;
-  preview.clear();
 };
 const openDirectory = async (path: string) => {
   workspace.selectDirectory(path);
+  tabs.updateCurrentDirectory(path);
   selectedEntry.value = null;
   preview.clear();
 };
 const selectEntry = (entry: FileInfo) => {
   selectedEntry.value = entry;
-  if (!entry.isDirectory) void preview.preview(entry);
+  if (!entry.isDirectory) void tabs.openFile(entry);
 };
-const refresh = () => void workspace.refreshDirectory();
+const refresh = () => void workspace.refreshLoadedDirectories();
+const activateTab = (id: string) => void tabs.activate(id);
+const closeTab = (id: string) => void tabs.close(id);
 const retryPreview = () => {
   if (preview.file) void preview.preview(preview.file);
 };
@@ -282,7 +328,28 @@ const closeContextMenuOnOutsideClick = (event: PointerEvent) => {
 const handleKeyboardShortcut = (event: KeyboardEvent) => {
   const target = event.target as HTMLElement | null;
   if (target?.matches('input, textarea, [contenteditable="true"]')) return;
+  if (event.key === 'F5') {
+    event.preventDefault();
+    refresh();
+    return;
+  }
   if (!event.ctrlKey && !event.metaKey) return;
+
+  if (event.shiftKey && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    search.open();
+    return;
+  }
+  if (event.key.toLowerCase() === 'o' || event.key.toLowerCase() === 't') {
+    event.preventDefault();
+    void chooseWorkspace();
+    return;
+  }
+  if (event.key.toLowerCase() === 'w') {
+    event.preventDefault();
+    void tabs.close();
+    return;
+  }
 
   if (event.key.toLowerCase() === 'c' && selectedEntry.value) {
     event.preventDefault();
@@ -338,9 +405,8 @@ const openRecentWorkspace = async (command: string) => {
     await clearHistory('最近文件夹', () => history.clearWorkspaces());
     return;
   }
-  await workspace.openWorkspace(command);
+  await tabs.openWorkspace(command);
   selectedEntry.value = null;
-  preview.clear();
 };
 
 const openRecentFile = async (command: string) => {
@@ -352,17 +418,72 @@ const openRecentFile = async (command: string) => {
   if (!item) return;
   const separator = Math.max(item.path.lastIndexOf('/'), item.path.lastIndexOf('\\'));
   if (separator < 1) return;
-  await workspace.openWorkspace(item.path.slice(0, separator));
-  const file = {
-    path: item.path,
-    name: item.name,
-    extension: item.extension,
-    size: 0,
-    modifiedAt: null,
-    isDirectory: false,
-  };
-  selectedEntry.value = file;
-  await preview.preview(file);
+  if (!(await tabs.openWorkspace(item.path.slice(0, separator)))) return;
+  try {
+    const file = await getFileInfo(item.path);
+    selectedEntry.value = file;
+    await tabs.openFile(file);
+  } catch (error) {
+    ElMessage.error(`文件已不可用：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const openSearchResult = async (result: ContentSearchResult) => {
+  try {
+    const file = await getFileInfo(result.path);
+    selectedEntry.value = file;
+    await tabs.openFile(file);
+    search.close();
+  } catch (error) {
+    ElMessage.error(`无法打开搜索结果：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const refreshChangedWorkspace = async (workspacePath: string) => {
+  if (workspace.workspace?.path !== workspacePath) return;
+  const previous = preview.file;
+  await workspace.refreshLoadedDirectories();
+  if (!previous) return;
+  try {
+    const current = await getFileInfo(previous.path);
+    if (current.size !== previous.size || current.modifiedAt !== previous.modifiedAt) {
+      await preview.preview(current);
+    }
+  } catch (error) {
+    preview.clear();
+    preview.file = previous;
+    preview.error = `正在预览的文件已不可用：${error instanceof Error ? error.message : String(error)}`;
+  }
+};
+
+const handleMenuAction = (action: string) => {
+  switch (action) {
+    case 'open-folder':
+    case 'new-workspace-tab':
+      void chooseWorkspace();
+      break;
+    case 'close-tab':
+      void tabs.close();
+      break;
+    case 'copy':
+      if (selectedEntry.value) copySelectedEntry(selectedEntry.value);
+      break;
+    case 'paste':
+      void pasteEntry();
+      break;
+    case 'refresh':
+      refresh();
+      break;
+    case 'search-content':
+      search.open();
+      break;
+    case 'check-updates':
+      void checkForUpdates();
+      break;
+    case 'project-home':
+      void openGithub();
+      break;
+  }
 };
 
 const clearHistory = async (name: string, action: () => Promise<void>) => {
@@ -381,6 +502,8 @@ const clearHistory = async (name: string, action: () => Promise<void>) => {
 
 let initialUpdateTimer: number | undefined;
 let periodicUpdateTimer: number | undefined;
+let unlistenMenu: UnlistenFn | undefined;
+let unlistenFileWatch: UnlistenFn | undefined;
 
 onMounted(() => {
   document.addEventListener('pointerdown', closeContextMenuOnOutsideClick);
@@ -394,6 +517,13 @@ onMounted(() => {
     () => void checkForUpdatesSilently(),
     AUTO_UPDATE_INTERVAL_MS,
   );
+  void tabs.restore();
+  void listen<string>('menu-action', (event) => handleMenuAction(event.payload)).then(
+    (unlisten) => (unlistenMenu = unlisten),
+  );
+  void listen<{ workspacePath: string }>('workspace-files-changed', (event) => {
+    void refreshChangedWorkspace(event.payload.workspacePath);
+  }).then((unlisten) => (unlistenFileWatch = unlisten));
 });
 
 onUnmounted(() => {
@@ -402,6 +532,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyboardShortcut);
   if (initialUpdateTimer !== undefined) window.clearTimeout(initialUpdateTimer);
   if (periodicUpdateTimer !== undefined) window.clearInterval(periodicUpdateTimer);
+  unlistenMenu?.();
+  unlistenFileWatch?.();
 });
 </script>
 
@@ -457,6 +589,67 @@ onUnmounted(() => {
 }
 .toolbar-right .el-button {
   flex: 0 0 auto;
+}
+.tab-bar {
+  align-items: end;
+  background: #f3f5f8;
+  border-bottom: 1px solid #dce2ea;
+  display: flex;
+  gap: 1px;
+  min-height: 36px;
+  overflow-x: auto;
+  padding: 4px 8px 0;
+}
+.workspace-tab {
+  align-items: center;
+  background: #e9edf2;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  color: #667085;
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12px;
+  gap: 7px;
+  height: 32px;
+  max-width: 220px;
+  min-width: 120px;
+  padding: 0 7px 0 10px;
+}
+.workspace-tab:hover {
+  background: #f7f9fb;
+  color: #344054;
+}
+.workspace-tab.active {
+  background: #fff;
+  border-color: #dce2ea;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+.workspace-tab > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-close {
+  align-items: center;
+  border-radius: 3px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 20px;
+  justify-content: center;
+  margin-left: auto;
+  width: 20px;
+}
+.tab-close:hover {
+  background: #e4e9f0;
+  color: #344054;
+}
+.tab-bar > .el-button {
+  align-self: center;
+  flex: 0 0 auto;
+  margin: 0 2px 3px 8px;
 }
 .app-version {
   color: #7b8797;

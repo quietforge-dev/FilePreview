@@ -10,5 +10,18 @@ export const readFile = async (path: string): Promise<Uint8Array> => {
   return Uint8Array.from(bytes);
 };
 
+export const getFileInfo = (path: string) => invoke<FileInfo>('file_info', { path });
+
+export interface ContentSearchResult {
+  path: string;
+  name: string;
+  extension: string;
+  lineNumber: number;
+  lineContent: string;
+}
+
+export const searchFileContents = (query: string) =>
+  invoke<ContentSearchResult[]>('search_file_contents', { query });
+
 export const copyEntry = (source: string, destinationDirectory: string) =>
   invoke<FileInfo>('copy_entry', { source, destinationDirectory });

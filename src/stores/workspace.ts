@@ -40,8 +40,10 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.loadingDirectories = {};
         await this.loadDirectory(this.currentDirectory);
         await useHistoryStore().loadWorkspaces();
+        return this.workspace;
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
+        return null;
       } finally {
         this.loading = false;
       }
@@ -88,6 +90,23 @@ export const useWorkspaceStore = defineStore('workspace', {
         const entries = await listDirectory(target);
         this.directoryEntries = { ...this.directoryEntries, [target]: entries };
         if (target === this.currentDirectory) this.entries = entries;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        this.loading = false;
+      }
+    },
+    async refreshLoadedDirectories() {
+      if (!this.workspace) return;
+      this.loading = true;
+      this.error = '';
+      try {
+        const paths = Object.keys(this.directoryEntries);
+        const refreshed = await Promise.all(
+          paths.map(async (path) => [path, await listDirectory(path)] as const),
+        );
+        this.directoryEntries = Object.fromEntries(refreshed);
+        this.entries = this.directoryEntries[this.currentDirectory] ?? [];
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
       } finally {

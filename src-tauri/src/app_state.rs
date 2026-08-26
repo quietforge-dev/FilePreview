@@ -1,10 +1,15 @@
 use sqlx::SqlitePool;
 
-use crate::{database, error::AppError, service::workspace_service::WorkspaceService};
+use crate::{
+    database,
+    error::AppError,
+    service::{file_watch_service::FileWatchService, workspace_service::WorkspaceService},
+};
 
 pub struct AppState {
     pub pool: SqlitePool,
     pub workspace: WorkspaceService,
+    pub file_watch: FileWatchService,
 }
 
 impl AppState {
@@ -13,6 +18,7 @@ impl AppState {
         Ok(Self {
             pool,
             workspace: WorkspaceService::default(),
+            file_watch: FileWatchService::default(),
         })
     }
 }

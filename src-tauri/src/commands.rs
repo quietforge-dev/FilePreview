@@ -1,9 +1,12 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     app_state::AppState,
-    model::{FileInfo, OfficeRuntimeStatus, RecentFile, RecentWorkspace, WorkspaceInfo},
-    service::{history_service, office_preview_service},
+    model::{
+        ContentSearchResult, FileInfo, OfficeRuntimeStatus, RecentFile, RecentWorkspace,
+        SessionTab, WorkspaceInfo,
+    },
+    service::{history_service, office_preview_service, session_service},
 };
 
 const GITHUB_REPOSITORY_URL: &str = "https://github.com/quietforge-dev/FilePreview";
@@ -54,10 +57,16 @@ fn open_url(url: &str) -> std::io::Result<()> {
 pub async fn open_workspace(
     path: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
-    history_service::open_workspace(&state.pool, &state.workspace, path)
+    let workspace = history_service::open_workspace(&state.pool, &state.workspace, path)
         .await
-        .map_err(Into::into)
+        .map_err(String::from)?;
+    state
+        .file_watch
+        .watch_workspace(&app, std::path::Path::new(&workspace.path))
+        .map_err(String::from)?;
+    Ok(workspace)
 }
 
 #[tauri::command]
@@ -71,6 +80,23 @@ pub fn list_directory(
 #[tauri::command]
 pub fn read_file(path: String, state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     state.workspace.read_file(path).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn file_info(path: String, state: State<'_, AppState>) -> Result<FileInfo, String> {
+    state.workspace.file_info(path).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn search_file_contents(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ContentSearchResult>, String> {
+    state
+        .workspace
+        .search_contents(query)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -143,6 +169,23 @@ pub async fn clear_recent_workspaces(state: State<'_, AppState>) -> Result<(), S
 #[tauri::command]
 pub async fn clear_recent_files(state: State<'_, AppState>) -> Result<(), String> {
     history_service::clear_recent_files(&state.pool)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_session_tabs(state: State<'_, AppState>) -> Result<Vec<SessionTab>, String> {
+    session_service::list_tabs(&state.pool)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_session_tabs(
+    tabs: Vec<SessionTab>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    session_service::save_tabs(&state.pool, tabs)
         .await
         .map_err(Into::into)
 }

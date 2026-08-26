@@ -11,6 +11,10 @@ mod model;
 mod service;
 
 use app_state::AppState;
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    Emitter,
+};
 
 pub fn run() {
     let runtime = tokio::runtime::Runtime::new().expect("创建 Tokio runtime 失败");
@@ -22,10 +26,16 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
+        .setup(|app| {
+            install_menu(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::open_workspace,
             commands::list_directory,
             commands::read_file,
+            commands::file_info,
+            commands::search_file_contents,
             commands::office_runtime_status,
             commands::install_libreoffice,
             commands::convert_office_to_pdf,
@@ -35,10 +45,57 @@ pub fn run() {
             commands::list_recent_files,
             commands::clear_recent_workspaces,
             commands::clear_recent_files,
+            commands::list_session_tabs,
+            commands::save_session_tabs,
             commands::app_version,
             commands::open_external_url,
             commands::open_libreoffice_download_page,
         ])
         .run(tauri::generate_context!())
         .expect("运行 FilePreview 失败");
+}
+
+fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    let open_folder = MenuItem::with_id(app, "open-folder", "打开文件夹", true, Some("Ctrl+O"))?;
+    let new_workspace_tab = MenuItem::with_id(
+        app,
+        "new-workspace-tab",
+        "新建工作区标签",
+        true,
+        Some("Ctrl+T"),
+    )?;
+    let close_tab = MenuItem::with_id(app, "close-tab", "关闭标签", true, Some("Ctrl+W"))?;
+    let copy = MenuItem::with_id(app, "copy", "复制", true, Some("Ctrl+C"))?;
+    let paste = MenuItem::with_id(app, "paste", "粘贴", true, Some("Ctrl+V"))?;
+    let refresh = MenuItem::with_id(app, "refresh", "刷新", true, Some("F5"))?;
+    let search = MenuItem::with_id(
+        app,
+        "search-content",
+        "文件内容搜索",
+        true,
+        Some("Ctrl+Shift+F"),
+    )?;
+    let check_updates = MenuItem::with_id(app, "check-updates", "检查更新", true, None::<&str>)?;
+    let project_home = MenuItem::with_id(app, "project-home", "项目主页", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let file = Submenu::with_items(
+        app,
+        "文件",
+        true,
+        &[&open_folder, &new_workspace_tab, &close_tab],
+    )?;
+    let edit = Submenu::with_items(app, "编辑", true, &[&copy, &paste])?;
+    let view = Submenu::with_items(app, "视图", true, &[&refresh, &search])?;
+    let help = Submenu::with_items(
+        app,
+        "帮助",
+        true,
+        &[&check_updates, &separator, &project_home],
+    )?;
+    let menu = Menu::with_items(app, &[&file, &edit, &view, &help])?;
+    app.set_menu(menu)?;
+    app.on_menu_event(|handle, event| {
+        let _ = handle.emit("menu-action", event.id().as_ref());
+    });
+    Ok(())
 }

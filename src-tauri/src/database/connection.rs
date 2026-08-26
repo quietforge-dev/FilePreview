@@ -47,13 +47,16 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("filepreview-{}/history-{suffix}.db", process::id()));
         let pool = connect(&path).await.expect("数据库迁移应成功");
-        let exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='workspace_history'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("应能查询迁移后的表");
-        assert_eq!(exists, 1);
+        for table in ["workspace_history", "file_history", "session_tabs"] {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .expect("应能查询迁移后的表");
+            assert_eq!(exists, 1, "应创建数据表：{table}");
+        }
         pool.close().await;
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("db-shm"));
