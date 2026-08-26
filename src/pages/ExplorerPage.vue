@@ -4,54 +4,6 @@
       <div class="toolbar-left">
         <span class="brand"
           ><el-icon><Files /></el-icon>FilePreview</span
-        ><el-button :icon="FolderOpened" type="primary" @click="chooseWorkspace"
-          >打开文件夹</el-button
-        ><el-dropdown
-          trigger="click"
-          @visible-change="loadWorkspaceHistory"
-          @command="openRecentWorkspace"
-        >
-          <el-button :icon="Clock">最近文件夹</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item
-                v-for="item in history.recentWorkspaces"
-                :key="item.path"
-                :command="item.path"
-              >
-                {{ item.name }}<span class="history-path">{{ item.path }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item v-if="!history.recentWorkspaces.length" disabled>
-                暂无记录
-              </el-dropdown-item>
-              <el-dropdown-item
-                v-if="history.recentWorkspaces.length"
-                divided
-                command="clear-workspaces"
-              >
-                <el-icon><Delete /></el-icon>清空最近文件夹
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template> </el-dropdown
-        ><el-dropdown trigger="click" @visible-change="loadFileHistory" @command="openRecentFile">
-          <el-button :icon="Document">浏览记录</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item
-                v-for="item in history.recentFiles"
-                :key="item.path"
-                :command="item.path"
-              >
-                {{ item.name }}<span class="history-path">{{ item.path }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item v-if="!history.recentFiles.length" disabled>
-                暂无记录
-              </el-dropdown-item>
-              <el-dropdown-item v-if="history.recentFiles.length" divided command="clear-files">
-                <el-icon><Delete /></el-icon>清空浏览记录
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template> </el-dropdown
         ><el-button
           :icon="Refresh"
           :disabled="!workspace.workspace"
@@ -87,29 +39,16 @@
         </el-tooltip>
       </div>
     </header>
-    <nav v-if="tabs.tabs.length" class="tab-bar" aria-label="打开的标签">
-      <button
-        v-for="tab in tabs.tabs"
-        :key="tab.id"
-        class="workspace-tab"
-        :class="{ active: tab.id === tabs.activeId }"
-        type="button"
-        @click="activateTab(tab.id)"
-      >
-        <el-icon><component :is="tab.kind === 'workspace' ? FolderOpened : Document" /></el-icon>
-        <span>{{ tab.kind === 'workspace' ? tab.workspaceName : tab.fileName }}</span>
-        <span
-          class="tab-close"
-          role="button"
-          :aria-label="`关闭 ${tab.kind === 'workspace' ? tab.workspaceName : tab.fileName}`"
-          @click.stop="closeTab(tab.id)"
-          ><el-icon><Close /></el-icon
-        ></span>
-      </button>
-      <el-tooltip content="打开文件夹到新标签" placement="bottom">
-        <el-button :icon="Plus" circle aria-label="新建工作区标签" @click="chooseWorkspace" />
-      </el-tooltip>
-    </nav>
+    <ExplorerTabBar @choose-workspace="chooseWorkspace" />
+    <RecentHistoryDialog
+      v-model="historyDialogVisible"
+      :title="historyDialogTitle"
+      :items="historyDialogItems"
+      :loading="historyDialogLoading"
+      :empty-text="historyDialogEmptyText"
+      @select="openHistoryItem"
+      @clear="clearHistoryDialog"
+    />
     <div v-if="workspace.error" class="error-bar">
       <el-icon><WarningFilled /></el-icon>{{ workspace.error }}
     </div>
@@ -189,18 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  Clock,
-  Close,
-  Delete,
-  Document,
-  Files,
-  FolderOpened,
-  Plus,
-  Refresh,
-  Search,
-  WarningFilled,
-} from '@element-plus/icons-vue';
+import { Files, FolderOpened, Refresh, Search, WarningFilled } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ClipboardPaste, Copy, Github, RefreshCw } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
@@ -209,6 +137,8 @@ import { getAppVersion, openProjectUrl } from '../api/app';
 import { getFileInfo, type ContentSearchResult } from '../api/file';
 import AppUpdateDialog from '../components/app/AppUpdateDialog.vue';
 import ContentSearchDialog from '../components/search/ContentSearchDialog.vue';
+import ExplorerTabBar from '../components/explorer/ExplorerTabBar.vue';
+import RecentHistoryDialog from '../components/explorer/RecentHistoryDialog.vue';
 import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
@@ -243,16 +173,36 @@ const MIN_PREVIEW_WIDTH = 360;
 const RESIZER_TOTAL_WIDTH = 8;
 
 type FileContextMenu = { file: FileInfo; x: number; y: number };
+type HistoryDialog = 'workspaces' | 'files';
 
 const folderWidth = ref(230);
 const activeResize = ref(false);
 const selectedEntry = ref<FileInfo | null>(null);
 const copiedEntry = ref<FileInfo | null>(null);
 const contextMenu = ref<FileContextMenu | null>(null);
+const historyDialog = ref<HistoryDialog | null>(null);
 const contextMenuElement = ref<HTMLElement>();
 const layoutStyle = computed(() => ({
   '--folder-width': `${folderWidth.value}px`,
 }));
+const historyDialogVisible = computed({
+  get: () => historyDialog.value !== null,
+  set: (value: boolean) => {
+    if (!value) historyDialog.value = null;
+  },
+});
+const historyDialogTitle = computed(() =>
+  historyDialog.value === 'files' ? '浏览记录' : '最近文件夹',
+);
+const historyDialogItems = computed(() =>
+  historyDialog.value === 'files' ? history.recentFiles : history.recentWorkspaces,
+);
+const historyDialogLoading = computed(() =>
+  historyDialog.value === 'files' ? history.loadingFiles : history.loadingWorkspaces,
+);
+const historyDialogEmptyText = computed(() =>
+  historyDialog.value === 'files' ? '暂无浏览记录' : '暂无最近文件夹',
+);
 
 const chooseWorkspace = async () => {
   await tabs.chooseWorkspace();
@@ -269,8 +219,6 @@ const selectEntry = (entry: FileInfo) => {
   if (!entry.isDirectory) void tabs.openFile(entry);
 };
 const refresh = () => void workspace.refreshLoadedDirectories();
-const activateTab = (id: string) => void tabs.activate(id);
-const closeTab = (id: string) => void tabs.close(id);
 const retryPreview = () => {
   if (preview.file) void preview.preview(preview.file);
 };
@@ -390,22 +338,22 @@ const installUpdate = async () => {
   }
 };
 const openReleasePage = () => void openProjectUrl(updater.releasePageUrl());
-const loadWorkspaceHistory = (visible: boolean) => {
-  if (visible) void history.loadWorkspaces();
-};
-const loadFileHistory = (visible: boolean) => {
-  if (visible) void history.loadFiles();
-};
 const recentFileByPath = computed(
   () => new Map(history.recentFiles.map((item) => [item.path, item])),
 );
+
+const showHistoryDialog = (kind: HistoryDialog) => {
+  historyDialog.value = kind;
+  if (kind === 'files') void history.loadFiles();
+  else void history.loadWorkspaces();
+};
 
 const openRecentWorkspace = async (command: string) => {
   if (command === 'clear-workspaces') {
     await clearHistory('最近文件夹', () => history.clearWorkspaces());
     return;
   }
-  await tabs.openWorkspace(command);
+  await tabs.replaceWorkspace(command);
   selectedEntry.value = null;
 };
 
@@ -418,7 +366,7 @@ const openRecentFile = async (command: string) => {
   if (!item) return;
   const separator = Math.max(item.path.lastIndexOf('/'), item.path.lastIndexOf('\\'));
   if (separator < 1) return;
-  if (!(await tabs.openWorkspace(item.path.slice(0, separator)))) return;
+  if (!(await tabs.replaceWorkspace(item.path.slice(0, separator)))) return;
   try {
     const file = await getFileInfo(item.path);
     selectedEntry.value = file;
@@ -426,6 +374,20 @@ const openRecentFile = async (command: string) => {
   } catch (error) {
     ElMessage.error(`文件已不可用：${error instanceof Error ? error.message : String(error)}`);
   }
+};
+
+const openHistoryItem = (path: string) => {
+  const kind = historyDialog.value;
+  historyDialog.value = null;
+  if (kind === 'files') void openRecentFile(path);
+  else void openRecentWorkspace(path);
+};
+const clearHistoryDialog = () => {
+  if (historyDialog.value === 'files') {
+    void clearHistory('浏览记录', () => history.clearFiles());
+    return;
+  }
+  void clearHistory('最近文件夹', () => history.clearWorkspaces());
 };
 
 const openSearchResult = async (result: ContentSearchResult) => {
@@ -459,8 +421,13 @@ const refreshChangedWorkspace = async (workspacePath: string) => {
 const handleMenuAction = (action: string) => {
   switch (action) {
     case 'open-folder':
-    case 'new-workspace-tab':
       void chooseWorkspace();
+      break;
+    case 'show-recent-workspaces':
+      showHistoryDialog('workspaces');
+      break;
+    case 'show-recent-files':
+      showHistoryDialog('files');
       break;
     case 'close-tab':
       void tabs.close();
@@ -590,67 +557,6 @@ onUnmounted(() => {
 .toolbar-right .el-button {
   flex: 0 0 auto;
 }
-.tab-bar {
-  align-items: end;
-  background: #f3f5f8;
-  border-bottom: 1px solid #dce2ea;
-  display: flex;
-  gap: 1px;
-  min-height: 36px;
-  overflow-x: auto;
-  padding: 4px 8px 0;
-}
-.workspace-tab {
-  align-items: center;
-  background: #e9edf2;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  color: #667085;
-  cursor: pointer;
-  display: flex;
-  flex: 0 0 auto;
-  font: inherit;
-  font-size: 12px;
-  gap: 7px;
-  height: 32px;
-  max-width: 220px;
-  min-width: 120px;
-  padding: 0 7px 0 10px;
-}
-.workspace-tab:hover {
-  background: #f7f9fb;
-  color: #344054;
-}
-.workspace-tab.active {
-  background: #fff;
-  border-color: #dce2ea;
-  color: #1d4ed8;
-  font-weight: 600;
-}
-.workspace-tab > span:first-of-type {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tab-close {
-  align-items: center;
-  border-radius: 3px;
-  display: inline-flex;
-  flex: 0 0 auto;
-  height: 20px;
-  justify-content: center;
-  margin-left: auto;
-  width: 20px;
-}
-.tab-close:hover {
-  background: #e4e9f0;
-  color: #344054;
-}
-.tab-bar > .el-button {
-  align-self: center;
-  flex: 0 0 auto;
-  margin: 0 2px 3px 8px;
-}
 .app-version {
   color: #7b8797;
   font-family: Consolas, monospace;
@@ -659,15 +565,6 @@ onUnmounted(() => {
 }
 .search {
   min-width: 0;
-}
-.history-path {
-  color: #98a2b3;
-  display: block;
-  font-size: 11px;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .error-bar {
   align-items: center;

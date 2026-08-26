@@ -43,7 +43,32 @@ export const useTabsStore = defineStore('tabs', {
     },
     async chooseWorkspace() {
       const path = await open({ directory: true, multiple: false, title: '选择要预览的文件夹' });
-      if (typeof path === 'string') await this.openWorkspace(path);
+      if (typeof path === 'string') await this.replaceWorkspace(path);
+    },
+    async replaceWorkspace(path: string) {
+      const workspace = useWorkspaceStore();
+      const previousPath = workspace.workspace?.path;
+      const opened = await workspace.openWorkspace(path);
+      if (!opened) return false;
+      if (previousPath === opened.path) return true;
+      usePreviewStore().clear();
+      this.tabs = [
+        {
+          id: createId(),
+          kind: 'workspace',
+          workspacePath: opened.path,
+          workspaceName: opened.name,
+          filePath: null,
+          fileName: null,
+          fileExtension: null,
+          currentDirectory: opened.path,
+          position: 0,
+          active: true,
+        },
+      ];
+      this.activeId = this.tabs[0].id;
+      await this.persist();
+      return true;
     },
     async openWorkspace(path: string) {
       const workspace = useWorkspaceStore();
@@ -148,6 +173,43 @@ export const useTabsStore = defineStore('tabs', {
       }
       usePreviewStore().clear();
       const next = this.tabs[index] ?? this.tabs[index - 1];
+      this.activeId = next?.id ?? '';
+      if (next) await this.activate(next.id, false);
+      await this.persist();
+    },
+    async closeLeft(id: string) {
+      const index = this.tabs.findIndex((tab) => tab.id === id);
+      if (index > 0) await this.closeMatching((_, position) => position < index, id);
+    },
+    async closeRight(id: string) {
+      const index = this.tabs.findIndex((tab) => tab.id === id);
+      if (index >= 0 && index < this.tabs.length - 1) {
+        await this.closeMatching((_, position) => position > index, id);
+      }
+    },
+    async closeOthers(id: string) {
+      await this.closeMatching((tab) => tab.id !== id, id);
+    },
+    async closeAll() {
+      await this.closeMatching(() => true);
+    },
+    async closeMatching(
+      shouldClose: (tab: SessionTab, position: number) => boolean,
+      preferredActiveId?: string,
+    ) {
+      const activeIndex = this.tabs.findIndex((tab) => tab.id === this.activeId);
+      const closingActive = this.tabs.some(
+        (tab, position) => tab.id === this.activeId && shouldClose(tab, position),
+      );
+      this.tabs = this.tabs.filter((tab, position) => !shouldClose(tab, position));
+      if (!closingActive) {
+        await this.persist();
+        return;
+      }
+      usePreviewStore().clear();
+      const next =
+        this.tabs.find((tab) => tab.id === preferredActiveId) ??
+        this.tabs[Math.min(activeIndex, this.tabs.length - 1)];
       this.activeId = next?.id ?? '';
       if (next) await this.activate(next.id, false);
       await this.persist();

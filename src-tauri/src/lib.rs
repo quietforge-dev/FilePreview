@@ -57,13 +57,15 @@ pub fn run() {
 
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     let open_folder = MenuItem::with_id(app, "open-folder", "打开文件夹", true, Some("Ctrl+O"))?;
-    let new_workspace_tab = MenuItem::with_id(
+    let recent_workspaces = MenuItem::with_id(
         app,
-        "new-workspace-tab",
-        "新建工作区标签",
+        "show-recent-workspaces",
+        "最近文件夹...",
         true,
-        Some("Ctrl+T"),
+        None::<&str>,
     )?;
+    let recent_files =
+        MenuItem::with_id(app, "show-recent-files", "浏览记录...", true, None::<&str>)?;
     let close_tab = MenuItem::with_id(app, "close-tab", "关闭标签", true, Some("Ctrl+W"))?;
     let copy = MenuItem::with_id(app, "copy", "复制", true, Some("Ctrl+C"))?;
     let paste = MenuItem::with_id(app, "paste", "粘贴", true, Some("Ctrl+V"))?;
@@ -77,12 +79,19 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     )?;
     let check_updates = MenuItem::with_id(app, "check-updates", "检查更新", true, None::<&str>)?;
     let project_home = MenuItem::with_id(app, "project-home", "项目主页", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
+    let file_separator = PredefinedMenuItem::separator(app)?;
+    let help_separator = PredefinedMenuItem::separator(app)?;
     let file = Submenu::with_items(
         app,
         "文件",
         true,
-        &[&open_folder, &new_workspace_tab, &close_tab],
+        &[
+            &open_folder,
+            &recent_workspaces,
+            &recent_files,
+            &file_separator,
+            &close_tab,
+        ],
     )?;
     let edit = Submenu::with_items(app, "编辑", true, &[&copy, &paste])?;
     let view = Submenu::with_items(app, "视图", true, &[&refresh, &search])?;
@@ -90,7 +99,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         app,
         "帮助",
         true,
-        &[&check_updates, &separator, &project_home],
+        &[&check_updates, &help_separator, &project_home],
     )?;
     let menu = Menu::with_items(app, &[&file, &edit, &view, &help])?;
     app.set_menu(menu)?;
