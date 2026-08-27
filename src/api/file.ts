@@ -15,6 +15,9 @@ export const getFileInfo = (path: string) => invoke<FileInfo>('file_info', { pat
 export const writeMarkdownFile = (path: string, content: string) =>
   invoke<FileInfo>('write_markdown_file', { path, content });
 
+export const createFile = (destinationDirectory: string, fileName: string) =>
+  invoke<FileInfo>('create_file', { destinationDirectory, fileName });
+
 export interface ContentSearchResult {
   path: string;
   name: string;

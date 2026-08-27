@@ -63,6 +63,38 @@ pub fn write_markdown_file_atomically(path: &Path, content: &str) -> Result<File
     file_info(path)
 }
 
+pub fn create_empty_file(directory: &Path, file_name: &str) -> Result<FileInfo, AppError> {
+    let file_name = Path::new(file_name);
+    if file_name
+        .as_os_str()
+        .to_string_lossy()
+        .contains(['/', '\\'])
+        || !matches!(
+            file_name.components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+        || file_name.components().count() != 1
+    {
+        return Err(AppError::InvalidFileName);
+    }
+    let path = directory.join(file_name);
+    if path.exists() {
+        return Err(AppError::EntryAlreadyExists);
+    }
+
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(_) => file_info(&path),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(AppError::EntryAlreadyExists)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn validate_markdown_file(path: &Path, content_size_bytes: u64) -> Result<(), AppError> {
     validate_preview_file(path, 25 * 1024 * 1024)?;
     if content_size_bytes > 25 * 1024 * 1024 {

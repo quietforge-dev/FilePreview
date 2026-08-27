@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import {
   copyEntry,
   copyEntryToSystemClipboard,
+  createFile as createWorkspaceFile,
   deleteEntry,
   hasSystemClipboardFiles,
   listDirectory,
@@ -127,6 +128,25 @@ export const useWorkspaceStore = defineStore('workspace', {
           };
         }
         return copied;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    async createFile(destinationDirectory: string, fileName: string) {
+      this.loading = true;
+      this.error = '';
+      try {
+        const created = await createWorkspaceFile(destinationDirectory, fileName);
+        const entries = await listDirectory(destinationDirectory);
+        this.directoryEntries = {
+          ...this.directoryEntries,
+          [destinationDirectory]: entries,
+        };
+        if (destinationDirectory === this.currentDirectory) this.entries = entries;
+        return created;
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
         throw error;

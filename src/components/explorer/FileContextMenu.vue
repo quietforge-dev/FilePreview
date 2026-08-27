@@ -18,6 +18,9 @@
       }}
     </button>
     <div class="menu-separator" />
+    <button v-if="file.isDirectory" type="button" role="menuitem" @click="emitAction('createFile')">
+      <FilePlus2 :size="16" />新建文件
+    </button>
     <button type="button" role="menuitem" @click="emitAction('copyPath')">
       <ClipboardCopy :size="16" />复制路径
     </button>
@@ -43,6 +46,7 @@ import {
   ClipboardPaste,
   Copy,
   ExternalLink,
+  FilePlus2,
   FolderOpen,
   LocateFixed,
   RefreshCw,
@@ -58,7 +62,15 @@ const props = defineProps<{
   canPaste: boolean;
 }>();
 type ContextMenuAction =
-  'open' | 'reveal' | 'systemOpen' | 'copyPath' | 'copy' | 'paste' | 'refresh' | 'delete';
+  | 'open'
+  | 'reveal'
+  | 'systemOpen'
+  | 'createFile'
+  | 'copyPath'
+  | 'copy'
+  | 'paste'
+  | 'refresh'
+  | 'delete';
 
 const emit = defineEmits<{
   (event: ContextMenuAction): void;

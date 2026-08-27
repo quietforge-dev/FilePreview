@@ -38,6 +38,7 @@ pub fn run() {
             commands::workspace::read_file,
             commands::workspace::file_info,
             commands::workspace::write_markdown_file,
+            commands::workspace::create_file,
             commands::workspace::search_file_contents,
             commands::workspace::search_workspace_entries,
             commands::app::office_runtime_status,

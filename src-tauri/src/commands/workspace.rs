@@ -54,6 +54,19 @@ pub async fn write_markdown_file(
 }
 
 #[tauri::command]
+pub async fn create_file(
+    destination_directory: String,
+    file_name: String,
+    state: State<'_, AppState>,
+) -> Result<FileInfo, String> {
+    state
+        .workspace
+        .create_file(destination_directory, file_name)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn search_file_contents(
     query: String,
     state: State<'_, AppState>,

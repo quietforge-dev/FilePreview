@@ -73,6 +73,23 @@ impl WorkspaceService {
         .map_err(|_| AppError::FileWriteTaskFailed)?
     }
 
+    pub async fn create_file(
+        &self,
+        destination_directory: String,
+        file_name: String,
+    ) -> Result<FileInfo, AppError> {
+        let root = self.workspace_root()?;
+        let destination_directory = self.authorized_path(&root, Some(&destination_directory))?;
+        if !destination_directory.is_dir() {
+            return Err(AppError::NotDirectory);
+        }
+        tokio::task::spawn_blocking(move || {
+            filesystem::create_empty_file(&destination_directory, &file_name)
+        })
+        .await
+        .map_err(|_| AppError::FileWriteTaskFailed)?
+    }
+
     pub async fn convert_office_to_pdf(&self, path: String) -> Result<Vec<u8>, AppError> {
         let root = self.workspace_root()?;
         let target = self.authorized_path(&root, Some(&path))?;
@@ -481,6 +498,51 @@ mod tests {
         assert_eq!(saved.name, "example.md");
         assert_eq!(fs::read_to_string(&file).unwrap(), "# 保存后的内容\n");
         fs::remove_dir_all(root).expect("应清理写入测试目录");
+    }
+
+    #[tokio::test]
+    async fn creates_an_empty_file_inside_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-create-file-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建新建文件测试目录");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开新建文件测试工作区");
+        let created = service
+            .create_file(root.to_string_lossy().to_string(), "notes.md".into())
+            .await
+            .expect("应创建空文件");
+
+        assert_eq!(created.name, "notes.md");
+        assert_eq!(fs::read_to_string(root.join("notes.md")).unwrap(), "");
+        fs::remove_dir_all(root).expect("应清理新建文件测试目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_creating_a_file_with_path_segments() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-create-invalid-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建新建文件测试目录");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开新建文件测试工作区");
+        let error = service
+            .create_file(root.to_string_lossy().to_string(), "nested/notes.md".into())
+            .await
+            .expect_err("不应允许通过文件名创建子路径");
+
+        assert!(matches!(error, crate::error::AppError::InvalidFileName));
+        fs::remove_dir_all(root).expect("应清理新建文件测试目录");
     }
 
     #[tokio::test]

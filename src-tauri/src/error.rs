@@ -16,6 +16,10 @@ pub enum AppError {
     OutsideWorkspace,
     #[error("目标不是文件夹")]
     NotDirectory,
+    #[error("文件名无效，不能包含路径分隔符")]
+    InvalidFileName,
+    #[error("同名文件或文件夹已存在")]
+    EntryAlreadyExists,
     #[error("不能读取目录")]
     IsDirectory,
     #[error("只支持编辑 Markdown 文件")]

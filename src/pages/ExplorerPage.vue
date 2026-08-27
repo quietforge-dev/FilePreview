@@ -111,6 +111,7 @@
       @open="openContextEntry"
       @reveal="revealContextEntry"
       @system-open="openContextEntryWithSystem"
+      @create-file="createFileInContextDirectory"
       @copy-path="copyContextEntryPath"
       @copy="copyContextEntry"
       @paste="pasteContextEntry"
@@ -450,6 +451,26 @@ const copyContextEntryPath = async () => {
 const pasteContextEntry = () => {
   const entry = contextEntry();
   void pasteEntry(entry?.isDirectory ? entry.path : workspace.currentDirectory);
+};
+const createFileInContextDirectory = async () => {
+  const entry = contextEntry();
+  if (!entry?.isDirectory) return;
+  try {
+    const { value } = await ElMessageBox.prompt('请输入文件名，并自行填写扩展名。', '新建文件', {
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如 notes.md',
+      inputPattern: /^(?!\s*$)(?!.*[\\/]).+$/,
+      inputErrorMessage: '文件名不能为空，且不能包含路径分隔符',
+    });
+    const created = await workspace.createFile(entry.path, value.trim());
+    selectedEntry.value = created;
+    ElMessage.success(`已创建 ${created.name}`);
+    await openFile(created);
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(`创建文件失败：${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 const isPathAtOrBelow = (candidate: string, parent: string) => {
   const normalizedCandidate = candidate.toLowerCase();
