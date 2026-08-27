@@ -28,6 +28,12 @@ pub enum AppError {
     SymbolicLinkNotSupported,
     #[error("文件复制任务失败")]
     CopyTaskFailed,
+    #[error("系统剪贴板中没有可粘贴的文件或文件夹")]
+    ClipboardHasNoFiles,
+    #[error("无法读取系统剪贴板：{0}")]
+    ClipboardRead(String),
+    #[error("无法写入系统剪贴板：{0}")]
+    ClipboardWrite(String),
     #[error("文件删除任务失败")]
     DeleteTaskFailed,
     #[error("移入系统回收站失败：{0}")]

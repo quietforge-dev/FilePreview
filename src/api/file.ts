@@ -29,4 +29,12 @@ export const searchFileContents = (query: string) =>
 export const copyEntry = (source: string, destinationDirectory: string) =>
   invoke<FileInfo>('copy_entry', { source, destinationDirectory });
 
+export const hasSystemClipboardFiles = () => invoke<boolean>('has_system_clipboard_files');
+
+export const copyEntryToSystemClipboard = (path: string) =>
+  invoke<void>('copy_entry_to_system_clipboard', { path });
+
+export const pasteSystemClipboardEntries = (destinationDirectory: string) =>
+  invoke<FileInfo[]>('paste_system_clipboard_entries', { destinationDirectory });
+
 export const deleteEntry = (path: string) => invoke<void>('delete_entry', { path });

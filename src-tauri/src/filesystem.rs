@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     process,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -82,22 +82,67 @@ fn validate_markdown_file(path: &Path, content_size_bytes: u64) -> Result<(), Ap
 }
 
 pub fn copy_entry(source: &Path, destination_directory: &Path) -> Result<FileInfo, AppError> {
+    validate_copy_source(source)?;
     let destination = available_copy_path(source, destination_directory)?;
-    let file_type = fs::symlink_metadata(source)?.file_type();
-
-    if file_type.is_symlink() {
-        return Err(
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "不支持复制符号链接").into(),
-        );
-    }
-
-    if file_type.is_dir() {
+    if source.is_dir() {
         copy_directory(source, &destination)?;
     } else {
         fs::copy(source, &destination)?;
     }
 
     file_info(&destination)
+}
+
+pub fn copy_entries(
+    sources: &[PathBuf],
+    destination_directory: &Path,
+) -> Result<Vec<FileInfo>, AppError> {
+    sources
+        .iter()
+        .try_for_each(|source| validate_copy_source(source))?;
+    sources
+        .iter()
+        .map(|source| copy_entry(source, destination_directory))
+        .collect()
+}
+
+fn validate_copy_source(source: &Path) -> Result<(), AppError> {
+    let file_type = fs::symlink_metadata(source)?.file_type();
+    if file_type.is_symlink() {
+        return Err(AppError::SymbolicLinkNotSupported);
+    }
+    if file_type.is_dir() {
+        for entry in fs::read_dir(source)? {
+            validate_copy_source(&entry?.path())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn system_clipboard_file_paths() -> Result<Vec<PathBuf>, AppError> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| AppError::ClipboardRead(error.to_string()))?;
+    let paths = clipboard
+        .get()
+        .file_list()
+        .map_err(|error| AppError::ClipboardRead(error.to_string()))?;
+
+    if paths.is_empty() {
+        return Err(AppError::ClipboardHasNoFiles);
+    }
+    Ok(paths)
+}
+
+pub fn set_system_clipboard_file_paths(paths: &[PathBuf]) -> Result<(), AppError> {
+    if paths.is_empty() {
+        return Err(AppError::ClipboardHasNoFiles);
+    }
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| AppError::ClipboardWrite(error.to_string()))?;
+    clipboard
+        .set()
+        .file_list(paths)
+        .map_err(|error| AppError::ClipboardWrite(error.to_string()))
 }
 
 pub fn move_entry_to_trash(path: &Path) -> Result<(), AppError> {

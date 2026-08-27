@@ -51,11 +51,15 @@ export const usePreviewStore = defineStore('preview', {
       this.error = '';
     },
     async renderMarkdownSource(source: string) {
+      const version = ++this.renderVersion;
       if (this.content?.kind !== 'markdown') return;
+      const filePath = this.file?.path;
+      const html = await renderMarkdownSource(source);
+      if (version !== this.renderVersion || this.file?.path !== filePath) return;
       this.content = {
         kind: 'markdown',
         source,
-        html: await renderMarkdownSource(source),
+        html,
       };
     },
     updateFileMetadata(file: FileInfo) {

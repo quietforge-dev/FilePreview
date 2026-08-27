@@ -169,6 +169,7 @@ const saveMarkdown = async () => {
     const saved = await markdownEditor.save(props.file.path);
     if (!saved) return;
     preview.updateFileMetadata(saved);
+    await preview.renderMarkdownSource(markdownSession.value.source);
     ElMessage.success('已保存');
   } catch (error) {
     ElMessage.error(`保存失败：${error instanceof Error ? error.message : String(error)}`);

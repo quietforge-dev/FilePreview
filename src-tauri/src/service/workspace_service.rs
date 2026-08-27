@@ -101,6 +101,70 @@ impl WorkspaceService {
             .map_err(|_| AppError::CopyTaskFailed)?
     }
 
+    pub async fn has_system_clipboard_files(&self) -> bool {
+        tokio::task::spawn_blocking(filesystem::system_clipboard_file_paths)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .is_some_and(|paths| !paths.is_empty())
+    }
+
+    pub async fn copy_entry_to_system_clipboard(&self, path: String) -> Result<(), AppError> {
+        let root = self.workspace_root()?;
+        let requested = PathBuf::from(&path);
+        if fs::symlink_metadata(&requested)?.file_type().is_symlink() {
+            return Err(AppError::SymbolicLinkNotSupported);
+        }
+        let target = self.authorized_path(&root, Some(&path))?;
+
+        tokio::task::spawn_blocking(move || filesystem::set_system_clipboard_file_paths(&[target]))
+            .await
+            .map_err(|_| AppError::CopyTaskFailed)?
+    }
+
+    pub async fn paste_system_clipboard_entries(
+        &self,
+        destination_directory: String,
+    ) -> Result<Vec<FileInfo>, AppError> {
+        let sources = tokio::task::spawn_blocking(filesystem::system_clipboard_file_paths)
+            .await
+            .map_err(|_| AppError::CopyTaskFailed)??;
+        self.copy_external_entries(sources, destination_directory)
+            .await
+    }
+
+    async fn copy_external_entries(
+        &self,
+        sources: Vec<PathBuf>,
+        destination_directory: String,
+    ) -> Result<Vec<FileInfo>, AppError> {
+        let root = self.workspace_root()?;
+        let destination_directory = self.authorized_path(&root, Some(&destination_directory))?;
+        if !destination_directory.is_dir() {
+            return Err(AppError::NotDirectory);
+        }
+
+        let sources = sources
+            .into_iter()
+            .map(|source| Self::authorized_external_source(&source))
+            .collect::<Result<Vec<_>, _>>()?;
+        if sources.is_empty() {
+            return Err(AppError::ClipboardHasNoFiles);
+        }
+        if sources
+            .iter()
+            .any(|source| source.is_dir() && destination_directory.starts_with(source))
+        {
+            return Err(AppError::CannotCopyIntoSelf);
+        }
+
+        tokio::task::spawn_blocking(move || {
+            filesystem::copy_entries(&sources, &destination_directory)
+        })
+        .await
+        .map_err(|_| AppError::CopyTaskFailed)?
+    }
+
     pub async fn delete_entry(&self, path: String) -> Result<(), AppError> {
         let root = self.workspace_root()?;
         let requested = PathBuf::from(&path);
@@ -155,6 +219,13 @@ impl WorkspaceService {
         } else {
             Err(AppError::OutsideWorkspace)
         }
+    }
+
+    fn authorized_external_source(source: &Path) -> Result<PathBuf, AppError> {
+        if fs::symlink_metadata(source)?.file_type().is_symlink() {
+            return Err(AppError::SymbolicLinkNotSupported);
+        }
+        Ok(source.canonicalize()?)
     }
 }
 
@@ -367,5 +438,67 @@ mod tests {
         assert!(matches!(error, crate::error::AppError::OutsideWorkspace));
         fs::remove_file(outside).expect("应清理工作区外测试文件");
         fs::remove_dir_all(root).expect("应清理删除测试目录");
+    }
+
+    #[tokio::test]
+    async fn imports_multiple_external_entries_into_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-import-workspace-{suffix}"));
+        let source = std::env::temp_dir().join(format!("filepreview-import-source-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建导入测试工作区");
+        fs::create_dir_all(&source).expect("应创建导入测试源目录");
+        let first = source.join("first.txt");
+        let second = source.join("second.txt");
+        fs::write(&first, "first").expect("应写入第一个源文件");
+        fs::write(&second, "second").expect("应写入第二个源文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开导入测试工作区");
+        let copied = service
+            .copy_external_entries(vec![first, second], root.to_string_lossy().to_string())
+            .await
+            .expect("应导入外部文件");
+
+        assert_eq!(copied.len(), 2);
+        assert_eq!(fs::read_to_string(root.join("first.txt")).unwrap(), "first");
+        assert_eq!(
+            fs::read_to_string(root.join("second.txt")).unwrap(),
+            "second"
+        );
+        fs::remove_dir_all(root).expect("应清理导入测试工作区");
+        fs::remove_dir_all(source).expect("应清理导入测试源目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_importing_entries_to_a_directory_outside_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-import-root-{suffix}"));
+        let source = std::env::temp_dir().join(format!("filepreview-import-file-{suffix}.txt"));
+        let outside = std::env::temp_dir().join(format!("filepreview-import-outside-{suffix}"));
+        fs::create_dir_all(&root).expect("应创建导入测试工作区");
+        fs::create_dir_all(&outside).expect("应创建工作区外目录");
+        fs::write(&source, "source").expect("应写入工作区外源文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开导入测试工作区");
+        let error = service
+            .copy_external_entries(vec![source.clone()], outside.to_string_lossy().to_string())
+            .await
+            .expect_err("不应导入到工作区外目录");
+
+        assert!(matches!(error, crate::error::AppError::OutsideWorkspace));
+        fs::remove_file(source).expect("应清理工作区外源文件");
+        fs::remove_dir_all(root).expect("应清理导入测试工作区");
+        fs::remove_dir_all(outside).expect("应清理工作区外目录");
     }
 }

@@ -93,7 +93,7 @@
       :file="contextMenu.file"
       :x="contextMenu.x"
       :y="contextMenu.y"
-      :can-paste="!!copiedEntry && !!workspace.currentDirectory"
+      :can-paste="!!workspace.currentDirectory && (!!copiedEntry || systemClipboardHasFiles)"
       @open="openContextEntry"
       @reveal="revealContextEntry"
       @system-open="openContextEntryWithSystem"
@@ -189,6 +189,7 @@ const folderWidth = ref(230);
 const activeResize = ref(false);
 const selectedEntry = ref<FileInfo | null>(null);
 const copiedEntry = ref<FileInfo | null>(null);
+const systemClipboardHasFiles = ref(false);
 const contextMenu = ref<FileContextMenu | null>(null);
 const historyDialog = ref<HistoryDialog | null>(null);
 const layoutStyle = computed(() => ({
@@ -330,21 +331,53 @@ const openFile = async (file: FileInfo) => {
   removeMarkdownSessions(evictedPaths);
   return true;
 };
-const copySelectedEntry = (entry: FileInfo) => {
+const copySelectedEntry = async (entry: FileInfo) => {
   copiedEntry.value = entry;
   selectedEntry.value = entry;
   contextMenu.value = null;
-  ElMessage.success(`已复制 ${entry.name}`);
+  try {
+    await workspace.copyEntryToSystemClipboard(entry.path);
+    systemClipboardHasFiles.value = true;
+    ElMessage.success(`已复制 ${entry.name}`);
+  } catch (error) {
+    if (copiedEntry.value?.path === entry.path) copiedEntry.value = null;
+    ElMessage.error(`复制失败：${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 const copyContextEntry = () => {
   const entry = contextEntry();
-  if (entry) copySelectedEntry(entry);
+  if (entry) void copySelectedEntry(entry);
+};
+const refreshSystemClipboardAvailability = async () => {
+  if (!workspace.currentDirectory) {
+    systemClipboardHasFiles.value = false;
+    return;
+  }
+  try {
+    systemClipboardHasFiles.value = await workspace.hasSystemClipboardFiles();
+  } catch {
+    systemClipboardHasFiles.value = false;
+  }
 };
 const pasteEntry = async (destinationDirectory = workspace.currentDirectory) => {
-  const source = copiedEntry.value;
   contextMenu.value = null;
-  if (!source || !destinationDirectory) return;
+  if (!destinationDirectory) return;
   try {
+    const hasSystemFiles = await workspace.hasSystemClipboardFiles();
+    systemClipboardHasFiles.value = hasSystemFiles;
+    if (hasSystemFiles) {
+      const copied = await workspace.pasteSystemClipboardEntries(destinationDirectory);
+      if (destinationDirectory === workspace.currentDirectory && copied.length) {
+        selectedEntry.value = copied[copied.length - 1];
+      }
+      ElMessage.success(
+        copied.length === 1 ? `已粘贴 ${copied[0].name}` : `已粘贴 ${copied.length} 个项目`,
+      );
+      return;
+    }
+
+    const source = copiedEntry.value;
+    if (!source) return;
     const copied = await workspace.copyEntry(source.path, destinationDirectory);
     if (destinationDirectory === workspace.currentDirectory) selectedEntry.value = copied;
     ElMessage.success(`已粘贴 ${copied.name}`);
@@ -444,11 +477,13 @@ const deleteContextEntry = async () => {
 };
 const openContextMenu = (file: FileInfo, event: MouseEvent) => {
   selectedEntry.value = file;
+  systemClipboardHasFiles.value = false;
   contextMenu.value = {
     file,
     x: event.clientX,
     y: event.clientY,
   };
+  void refreshSystemClipboardAvailability();
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -477,7 +512,7 @@ const stopResize = () => {
 };
 const handleKeyboardShortcut = (event: KeyboardEvent) => {
   const target = event.target as HTMLElement | null;
-  if (target?.matches('input, textarea, [contenteditable="true"]')) return;
+  if (target?.closest('input, textarea, [contenteditable="true"]')) return;
   if (event.key === 'F5') {
     event.preventDefault();
     refresh();
@@ -503,9 +538,9 @@ const handleKeyboardShortcut = (event: KeyboardEvent) => {
 
   if (event.key.toLowerCase() === 'c' && selectedEntry.value) {
     event.preventDefault();
-    copySelectedEntry(selectedEntry.value);
+    void copySelectedEntry(selectedEntry.value);
   }
-  if (event.key.toLowerCase() === 'v' && copiedEntry.value && workspace.currentDirectory) {
+  if (event.key.toLowerCase() === 'v' && workspace.currentDirectory) {
     event.preventDefault();
     void pasteEntry();
   }
@@ -657,7 +692,7 @@ const handleMenuAction = (action: string) => {
       closeActiveTab();
       break;
     case 'copy':
-      if (selectedEntry.value) copySelectedEntry(selectedEntry.value);
+      if (selectedEntry.value) void copySelectedEntry(selectedEntry.value);
       break;
     case 'paste':
       void pasteEntry();

@@ -91,6 +91,35 @@ pub async fn copy_entry(
 }
 
 #[tauri::command]
+pub async fn has_system_clipboard_files(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.workspace.has_system_clipboard_files().await)
+}
+
+#[tauri::command]
+pub async fn copy_entry_to_system_clipboard(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .workspace
+        .copy_entry_to_system_clipboard(path)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn paste_system_clipboard_entries(
+    destination_directory: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<FileInfo>, String> {
+    state
+        .workspace
+        .paste_system_clipboard_entries(destination_directory)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn delete_entry(path: String, state: State<'_, AppState>) -> Result<(), String> {
     state.workspace.delete_entry(path).await.map_err(Into::into)
 }

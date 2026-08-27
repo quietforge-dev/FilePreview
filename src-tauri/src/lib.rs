@@ -43,6 +43,9 @@ pub fn run() {
             commands::app::install_libreoffice,
             commands::workspace::convert_office_to_pdf,
             commands::workspace::copy_entry,
+            commands::workspace::has_system_clipboard_files,
+            commands::workspace::copy_entry_to_system_clipboard,
+            commands::workspace::paste_system_clipboard_entries,
             commands::workspace::delete_entry,
             commands::workspace::open_entry_with_default_application,
             commands::history::record_browsed_file,
@@ -63,6 +66,7 @@ pub fn run() {
 }
 
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    const MENU_LABEL_PADDING: &str = "　";
     let open_folder = MenuItem::with_id(app, "open-folder", "打开文件夹", true, Some("Ctrl+O"))?;
     let recent_workspaces = MenuItem::with_id(
         app,
@@ -90,7 +94,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     let help_separator = PredefinedMenuItem::separator(app)?;
     let file = Submenu::with_items(
         app,
-        "文件",
+        format!("文件{MENU_LABEL_PADDING}"),
         true,
         &[
             &open_folder,
@@ -100,11 +104,21 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
             &close_tab,
         ],
     )?;
-    let edit = Submenu::with_items(app, "编辑", true, &[&copy, &paste])?;
-    let view = Submenu::with_items(app, "视图", true, &[&refresh, &search])?;
+    let edit = Submenu::with_items(
+        app,
+        format!("编辑{MENU_LABEL_PADDING}"),
+        true,
+        &[&copy, &paste],
+    )?;
+    let view = Submenu::with_items(
+        app,
+        format!("视图{MENU_LABEL_PADDING}"),
+        true,
+        &[&refresh, &search],
+    )?;
     let help = Submenu::with_items(
         app,
-        "帮助",
+        format!("帮助{MENU_LABEL_PADDING}"),
         true,
         &[&check_updates, &help_separator, &project_home],
     )?;
