@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "file-preview"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "arboard",
  "directories",

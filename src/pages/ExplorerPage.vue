@@ -11,6 +11,14 @@
           aria-label="刷新文件夹"
           @click="refresh"
         />
+        <el-tooltip content="最近文件夹" placement="bottom">
+          <el-button
+            :icon="FolderOpened"
+            circle
+            aria-label="最近文件夹"
+            @click="showHistoryDialog('workspaces')"
+          />
+        </el-tooltip>
       </div>
       <div class="path">{{ workspace.currentDirectory || '选择一个本地文件夹' }}</div>
       <div class="toolbar-right">
