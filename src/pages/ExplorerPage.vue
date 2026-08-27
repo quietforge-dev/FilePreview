@@ -27,16 +27,6 @@
             @click="checkForUpdates"
           />
         </el-tooltip>
-        <el-input
-          v-model="workspace.filter"
-          class="search"
-          :prefix-icon="Search"
-          placeholder="搜索当前目录"
-          clearable
-        />
-        <el-tooltip content="文件内容搜索" placement="bottom">
-          <el-button :icon="Search" circle aria-label="文件内容搜索" @click="search.open" />
-        </el-tooltip>
       </div>
     </header>
     <ExplorerTabBar
@@ -60,12 +50,28 @@
     <div class="workspace-layout" :style="layoutStyle">
       <aside class="folder-pane">
         <div class="pane-title">资源管理器</div>
+        <WorkspaceSearchPanel
+          ref="workspaceSearchPanel"
+          :workspace-ready="!!workspace.workspace"
+          :mode="search.mode"
+          :query="search.query"
+          :name-results="search.nameResults"
+          :content-results="search.contentResults"
+          :loading="search.loading"
+          :error="search.error"
+          :searched="search.searched"
+          @update:mode="setSearchMode"
+          @update:query="setSearchQuery"
+          @search="runWorkspaceSearch"
+          @open-file="openSearchResult"
+          @open-directory="openSearchDirectory"
+        />
         <FolderTree
+          v-if="!showSearchResults"
           :workspace="workspace.workspace"
           :entries="workspace.rootEntries"
           :path="workspace.currentDirectory"
           :selected-path="selectedEntry?.path ?? preview.file?.path"
-          :filter="workspace.filter"
           @open="openDirectory"
           @select="selectEntry"
           @contextmenu="openContextMenu"
@@ -116,22 +122,13 @@
     @install="installUpdate"
     @manual-download="openReleasePage"
   />
-  <ContentSearchDialog
-    v-model="search.visible"
-    v-model:query="search.query"
-    :results="search.results"
-    :loading="search.loading"
-    :error="search.error"
-    @search="search.search"
-    @select="openSearchResult"
-  />
 </template>
 
 <script setup lang="ts">
-import { Files, FolderOpened, Refresh, Search, WarningFilled } from '@element-plus/icons-vue';
+import { Files, FolderOpened, Refresh, WarningFilled } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Github, RefreshCw } from 'lucide-vue-next';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getAppVersion, openProjectUrl } from '../api/app';
 import { getFileInfo, type ContentSearchResult } from '../api/file';
@@ -141,16 +138,16 @@ import {
   revealInFileManager,
 } from '../api/system';
 import AppUpdateDialog from '../components/app/AppUpdateDialog.vue';
-import ContentSearchDialog from '../components/search/ContentSearchDialog.vue';
 import ExplorerTabBar from '../components/explorer/ExplorerTabBar.vue';
 import FileContextMenu from '../components/explorer/FileContextMenu.vue';
 import RecentHistoryDialog from '../components/explorer/RecentHistoryDialog.vue';
+import WorkspaceSearchPanel from '../components/explorer/WorkspaceSearchPanel.vue';
 import { usePreviewStore } from '../stores/preview';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useHistoryStore } from '../stores/history';
 import { useAppSettingsStore } from '../stores/appSettings';
 import { useMarkdownEditorStore } from '../stores/markdownEditor';
-import { useSearchStore } from '../stores/search';
+import { useSearchStore, type WorkspaceSearchMode } from '../stores/search';
 import { useTabsStore } from '../stores/tabs';
 import type { FileInfo } from '../types/file';
 import { useAppUpdater } from '../composables/useAppUpdater';
@@ -192,6 +189,7 @@ const copiedEntry = ref<FileInfo | null>(null);
 const systemClipboardHasFiles = ref(false);
 const contextMenu = ref<FileContextMenu | null>(null);
 const historyDialog = ref<HistoryDialog | null>(null);
+const workspaceSearchPanel = ref<{ focus: () => void }>();
 const layoutStyle = computed(() => ({
   '--folder-width': `${folderWidth.value}px`,
 }));
@@ -213,12 +211,31 @@ const historyDialogLoading = computed(() =>
 const historyDialogEmptyText = computed(() =>
   historyDialog.value === 'files' ? '暂无浏览记录' : '暂无最近文件夹',
 );
+const showSearchResults = computed(
+  () => Boolean(search.query.trim()) && (search.searched || search.loading),
+);
+const setSearchMode = (mode: WorkspaceSearchMode) => search.setMode(mode);
+const setSearchQuery = (query: string) => search.setQuery(query);
+const runWorkspaceSearch = () => {
+  if (search.mode === 'name') {
+    if (nameSearchTimer !== undefined) window.clearTimeout(nameSearchTimer);
+    nameSearchTimer = undefined;
+    void search.searchNames();
+    return;
+  }
+  void search.searchContents();
+};
+const focusWorkspaceSearch = (mode: WorkspaceSearchMode = 'name') => {
+  search.setMode(mode);
+  void nextTick(() => workspaceSearchPanel.value?.focus());
+};
 
 const chooseWorkspace = async () => {
   if (!(await confirmMarkdownChanges(filePathsForTabs(tabs.tabs)))) return;
   const previousPath = workspace.workspace?.path;
   await tabs.chooseWorkspace();
   if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
+  if (workspace.workspace?.path !== previousPath) search.reset();
   selectedEntry.value = null;
 };
 const openDirectory = async (path: string) => {
@@ -522,7 +539,12 @@ const handleKeyboardShortcut = (event: KeyboardEvent) => {
 
   if (event.shiftKey && event.key.toLowerCase() === 'f') {
     event.preventDefault();
-    search.open();
+    focusWorkspaceSearch('content');
+    return;
+  }
+  if (event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    focusWorkspaceSearch();
     return;
   }
   if (event.key.toLowerCase() === 'o' || event.key.toLowerCase() === 't') {
@@ -594,6 +616,7 @@ const openRecentWorkspace = async (command: string) => {
   const previousPath = workspace.workspace?.path;
   if (!(await tabs.replaceWorkspace(command))) return;
   if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
+  if (workspace.workspace?.path !== previousPath) search.reset();
   selectedEntry.value = null;
 };
 
@@ -610,6 +633,7 @@ const openRecentFile = async (command: string) => {
   const previousPath = workspace.workspace?.path;
   if (!(await tabs.replaceWorkspace(item.path.slice(0, separator)))) return;
   if (workspace.workspace?.path !== previousPath) markdownEditor.clear();
+  if (workspace.workspace?.path !== previousPath) search.reset();
   try {
     const file = await getFileInfo(item.path);
     selectedEntry.value = file;
@@ -633,14 +657,21 @@ const clearHistoryDialog = () => {
   void clearHistory('最近文件夹', () => history.clearWorkspaces());
 };
 
-const openSearchResult = async (result: ContentSearchResult) => {
+const openSearchResult = async (result: FileInfo | ContentSearchResult) => {
   try {
-    const file = await getFileInfo(result.path);
+    const file = 'lineNumber' in result ? await getFileInfo(result.path) : result;
     if (!(await openFile(file))) return;
     selectedEntry.value = file;
-    search.close();
   } catch (error) {
     ElMessage.error(`无法打开搜索结果：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+const openSearchDirectory = async (entry: FileInfo) => {
+  try {
+    await workspace.loadDirectory(entry.path);
+    await openDirectory(entry.path);
+  } catch (error) {
+    ElMessage.error(`无法打开文件夹：${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -649,6 +680,7 @@ const refreshChangedWorkspace = async (workspacePath: string, changedPaths: stri
   if (workspace.workspace?.path !== workspacePath) return;
   const previous = preview.file;
   await workspace.refreshLoadedDirectories();
+  if (search.mode === 'name' && search.query.trim()) void search.searchNames();
   if (!previous || !changedPaths.some((path) => samePath(path, previous.path))) return;
   if (markdownEditor.sessions[previous.path]?.dirty) {
     markdownEditor.markExternalChanged(previous.path);
@@ -701,7 +733,7 @@ const handleMenuAction = (action: string) => {
       refresh();
       break;
     case 'search-content':
-      search.open();
+      focusWorkspaceSearch('content');
       break;
     case 'check-updates':
       void checkForUpdates();
@@ -730,6 +762,19 @@ let initialUpdateTimer: number | undefined;
 let periodicUpdateTimer: number | undefined;
 let unlistenMenu: UnlistenFn | undefined;
 let unlistenFileWatch: UnlistenFn | undefined;
+let nameSearchTimer: number | undefined;
+
+watch([() => search.mode, () => search.query, () => workspace.workspace?.path], () => {
+  if (nameSearchTimer !== undefined) window.clearTimeout(nameSearchTimer);
+  if (search.mode !== 'name' || !workspace.workspace || !search.query.trim()) {
+    if (search.mode === 'name') search.clearNameResults();
+    return;
+  }
+  nameSearchTimer = window.setTimeout(() => {
+    nameSearchTimer = undefined;
+    void search.searchNames();
+  }, 220);
+});
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyboardShortcut);
@@ -759,6 +804,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyboardShortcut);
   if (initialUpdateTimer !== undefined) window.clearTimeout(initialUpdateTimer);
   if (periodicUpdateTimer !== undefined) window.clearInterval(periodicUpdateTimer);
+  if (nameSearchTimer !== undefined) window.clearTimeout(nameSearchTimer);
   unlistenMenu?.();
   unlistenFileWatch?.();
 });
@@ -778,7 +824,7 @@ onUnmounted(() => {
   border-bottom: 1px solid #e1e6ed;
   display: grid;
   gap: 18px;
-  grid-template-columns: auto minmax(120px, 1fr) 310px;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
   height: 60px;
   padding: 0 18px;
 }
@@ -822,9 +868,6 @@ onUnmounted(() => {
   font-family: Consolas, monospace;
   font-size: 12px;
   white-space: nowrap;
-}
-.search {
-  min-width: 0;
 }
 .error-bar {
   align-items: center;

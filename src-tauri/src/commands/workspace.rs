@@ -66,6 +66,18 @@ pub async fn search_file_contents(
 }
 
 #[tauri::command]
+pub async fn search_workspace_entries(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<FileInfo>, String> {
+    state
+        .workspace
+        .search_workspace_entries(query)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn convert_office_to_pdf(
     path: String,
     state: State<'_, AppState>,

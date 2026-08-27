@@ -39,6 +39,7 @@ pub fn run() {
             commands::workspace::file_info,
             commands::workspace::write_markdown_file,
             commands::workspace::search_file_contents,
+            commands::workspace::search_workspace_entries,
             commands::app::office_runtime_status,
             commands::app::install_libreoffice,
             commands::workspace::convert_office_to_pdf,

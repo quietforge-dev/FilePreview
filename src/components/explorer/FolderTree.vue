@@ -14,7 +14,6 @@
         :depth="0"
         :active-directory="path"
         :selected-path="selectedPath"
-        :filter="filter"
         @open="emit('open', $event)"
         @select="emit('select', $event)"
         @contextmenu="forwardContextMenu"
@@ -33,7 +32,6 @@ const props = defineProps<{
   entries: FileInfo[];
   path: string;
   selectedPath?: string;
-  filter: string;
 }>();
 const emit = defineEmits<{
   open: [path: string];

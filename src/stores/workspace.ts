@@ -21,17 +21,10 @@ export const useWorkspaceStore = defineStore('workspace', {
     loadingDirectories: {} as Record<string, boolean>,
     loading: false,
     error: '',
-    filter: '',
   }),
   getters: {
     rootEntries: (state) =>
       state.workspace ? (state.directoryEntries[state.workspace.path] ?? []) : [],
-    visibleEntries: (state) => {
-      const keyword = state.filter.trim().toLowerCase();
-      return keyword
-        ? state.entries.filter((entry) => entry.name.toLowerCase().includes(keyword))
-        : state.entries;
-    },
   },
   actions: {
     async chooseWorkspace() {

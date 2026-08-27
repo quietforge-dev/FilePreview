@@ -1,5 +1,5 @@
 <template>
-  <div v-for="entry in filteredEntries" :key="entry.path">
+  <div v-for="entry in entries" :key="entry.path">
     <el-tooltip v-if="!entry.isDirectory" placement="right" :show-after="350">
       <template #content>
         <div class="file-details">
@@ -41,7 +41,6 @@
           :depth="depth + 1"
           :active-directory="activeDirectory"
           :selected-path="selectedPath"
-          :filter="filter"
           @open="emit('open', $event)"
           @select="emit('select', $event)"
           @contextmenu="forwardContextMenu"
@@ -53,7 +52,7 @@
 
 <script setup lang="ts">
 import { CaretBottom, CaretRight, Document, Folder, FolderOpened } from '@element-plus/icons-vue';
-import { computed, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { FileInfo } from '../../types/file';
 
@@ -62,7 +61,6 @@ const props = defineProps<{
   depth: number;
   activeDirectory: string;
   selectedPath?: string;
-  filter: string;
 }>();
 const emit = defineEmits<{
   open: [path: string];
@@ -71,13 +69,6 @@ const emit = defineEmits<{
 }>();
 const workspace = useWorkspaceStore();
 const expandedPaths = ref(new Set<string>());
-const filteredEntries = computed(() => {
-  const keyword = props.filter.trim().toLowerCase();
-  return keyword
-    ? props.entries.filter((entry) => entry.name.toLowerCase().includes(keyword))
-    : props.entries;
-});
-
 watch(
   () => workspace.directoryEntries,
   () => {

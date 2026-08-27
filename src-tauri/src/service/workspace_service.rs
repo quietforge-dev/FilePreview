@@ -201,6 +201,17 @@ impl WorkspaceService {
             .map_err(|_| AppError::SearchTaskFailed)?
     }
 
+    pub async fn search_workspace_entries(&self, query: String) -> Result<Vec<FileInfo>, AppError> {
+        let query = query.trim().to_owned();
+        if query.is_empty() {
+            return Err(AppError::EmptySearchQuery);
+        }
+        let root = self.workspace_root()?;
+        tokio::task::spawn_blocking(move || search_workspace_entries(&root, &query))
+            .await
+            .map_err(|_| AppError::SearchTaskFailed)?
+    }
+
     fn workspace_root(&self) -> Result<PathBuf, AppError> {
         self.root
             .lock()
@@ -234,6 +245,60 @@ fn search_directory(root: &Path, query: &str) -> Result<Vec<ContentSearchResult>
     let mut results = Vec::new();
     search_directory_entries(root, &query, &mut results)?;
     Ok(results)
+}
+
+fn search_workspace_entries(root: &Path, query: &str) -> Result<Vec<FileInfo>, AppError> {
+    let query = query.to_lowercase();
+    let mut results = Vec::new();
+    search_workspace_entries_in_directory(root, &query, &mut results)?;
+    results.sort_by(|left, right| {
+        right
+            .is_directory
+            .cmp(&left.is_directory)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
+    });
+    Ok(results)
+}
+
+fn search_workspace_entries_in_directory(
+    directory: &Path,
+    query: &str,
+    results: &mut Vec<FileInfo>,
+) -> Result<(), AppError> {
+    if results.len() >= MAX_SEARCH_RESULTS {
+        return Ok(());
+    }
+
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| {
+        left.file_name()
+            .to_string_lossy()
+            .to_lowercase()
+            .cmp(&right.file_name().to_string_lossy().to_lowercase())
+    });
+    for entry in entries {
+        if results.len() >= MAX_SEARCH_RESULTS {
+            break;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        let path = entry.path();
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(query)
+        {
+            results.push(filesystem::file_info(&path)?);
+        }
+        if file_type.is_dir() {
+            search_workspace_entries_in_directory(&path, query, results)?;
+        }
+    }
+    Ok(())
 }
 
 fn search_directory_entries(
@@ -360,6 +425,34 @@ mod tests {
         assert_eq!(results[0].name, "example.md");
         assert_eq!(results[0].line_number, 2);
         fs::remove_dir_all(root).expect("应清理搜索测试目录");
+    }
+
+    #[tokio::test]
+    async fn searches_file_and_folder_names_recursively() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-name-search-{suffix}"));
+        let nested = root.join("matching-folder");
+        fs::create_dir_all(&nested).expect("应创建名称搜索测试目录");
+        fs::write(nested.join("matching-file.md"), "content").expect("应写入名称搜索测试文件");
+        fs::write(root.join("other.txt"), "other").expect("应写入无关文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开名称搜索测试工作区");
+        let results = service
+            .search_workspace_entries("matching".into())
+            .await
+            .expect("应完成名称搜索");
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_directory);
+        assert_eq!(results[0].name, "matching-folder");
+        assert_eq!(results[1].name, "matching-file.md");
+        fs::remove_dir_all(root).expect("应清理名称搜索测试目录");
     }
 
     #[tokio::test]

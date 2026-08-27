@@ -26,6 +26,9 @@ export interface ContentSearchResult {
 export const searchFileContents = (query: string) =>
   invoke<ContentSearchResult[]>('search_file_contents', { query });
 
+export const searchWorkspaceEntries = (query: string) =>
+  invoke<FileInfo[]>('search_workspace_entries', { query });
+
 export const copyEntry = (source: string, destinationDirectory: string) =>
   invoke<FileInfo>('copy_entry', { source, destinationDirectory });
 
