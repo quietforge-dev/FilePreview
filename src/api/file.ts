@@ -35,6 +35,9 @@ export const searchWorkspaceEntries = (query: string) =>
 export const copyEntry = (source: string, destinationDirectory: string) =>
   invoke<FileInfo>('copy_entry', { source, destinationDirectory });
 
+export const moveEntry = (source: string, destinationDirectory: string) =>
+  invoke<FileInfo>('move_entry', { source, destinationDirectory });
+
 export const hasSystemClipboardFiles = () => invoke<boolean>('has_system_clipboard_files');
 
 export const copyEntryToSystemClipboard = (path: string) =>

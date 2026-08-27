@@ -26,6 +26,14 @@ pub enum AppError {
     NotMarkdownFile,
     #[error("不能将文件夹复制到它自身或其子目录中")]
     CannotCopyIntoSelf,
+    #[error("不能将文件夹移动到它自身或其子目录中")]
+    CannotMoveIntoSelf,
+    #[error("移动目标已存在同名文件或文件夹")]
+    MoveTargetExists,
+    #[error("不能移动当前工作区根目录")]
+    CannotMoveWorkspaceRoot,
+    #[error("文件移动任务失败")]
+    MoveTaskFailed,
     #[error("不能删除当前工作区根目录")]
     CannotDeleteWorkspaceRoot,
     #[error("不支持操作符号链接")]

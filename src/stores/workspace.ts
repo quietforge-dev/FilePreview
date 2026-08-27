@@ -7,6 +7,7 @@ import {
   deleteEntry,
   hasSystemClipboardFiles,
   listDirectory,
+  moveEntry,
   openWorkspace,
   pasteSystemClipboardEntries,
 } from '../api/file';
@@ -105,9 +106,15 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         const paths = Object.keys(this.directoryEntries);
         const refreshed = await Promise.all(
-          paths.map(async (path) => [path, await listDirectory(path)] as const),
+          paths.map(async (path) => {
+            try {
+              return [path, await listDirectory(path)] as const;
+            } catch {
+              return null;
+            }
+          }),
         );
-        this.directoryEntries = Object.fromEntries(refreshed);
+        this.directoryEntries = Object.fromEntries(refreshed.filter((entry) => entry !== null));
         this.entries = this.directoryEntries[this.currentDirectory] ?? [];
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
@@ -128,6 +135,39 @@ export const useWorkspaceStore = defineStore('workspace', {
           };
         }
         return copied;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    async moveEntry(source: string, destinationDirectory: string) {
+      this.loading = true;
+      this.error = '';
+      try {
+        const moved = await moveEntry(source, destinationDirectory);
+        const normalizedSource = source.toLowerCase();
+        const replacePath = (path: string) =>
+          path.toLowerCase() === normalizedSource ||
+          path.toLowerCase().startsWith(`${normalizedSource}\\`) ||
+          path.toLowerCase().startsWith(`${normalizedSource}/`)
+            ? `${moved.path}${path.slice(source.length)}`
+            : path;
+        this.currentDirectory = replacePath(this.currentDirectory);
+        const paths = [...new Set(Object.keys(this.directoryEntries).map(replacePath))];
+        const refreshed = await Promise.all(
+          paths.map(async (path) => {
+            try {
+              return [path, await listDirectory(path)] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        this.directoryEntries = Object.fromEntries(refreshed.filter((entry) => entry !== null));
+        this.entries = this.directoryEntries[this.currentDirectory] ?? [];
+        return moved;
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
         throw error;

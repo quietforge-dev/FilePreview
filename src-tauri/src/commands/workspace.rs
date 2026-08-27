@@ -116,6 +116,19 @@ pub async fn copy_entry(
 }
 
 #[tauri::command]
+pub async fn move_entry(
+    source: String,
+    destination_directory: String,
+    state: State<'_, AppState>,
+) -> Result<FileInfo, String> {
+    state
+        .workspace
+        .move_entry(source, destination_directory)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn has_system_clipboard_files(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(state.workspace.has_system_clipboard_files().await)
 }

@@ -161,6 +161,27 @@ export const useTabsStore = defineStore('tabs', {
       tab.currentDirectory = path;
       void this.persist();
     },
+    movePath(oldPath: string, newFile: FileInfo) {
+      const normalized = oldPath.toLowerCase();
+      const replacePath = (path: string) =>
+        path.toLowerCase() === normalized ||
+        path.toLowerCase().startsWith(`${normalized}\\`) ||
+        path.toLowerCase().startsWith(`${normalized}/`)
+          ? `${newFile.path}${path.slice(oldPath.length)}`
+          : path;
+      this.tabs.forEach((tab) => {
+        if (tab.filePath) {
+          const nextPath = replacePath(tab.filePath);
+          if (nextPath !== tab.filePath) {
+            tab.filePath = nextPath;
+            tab.fileName = nextPath === newFile.path ? newFile.name : tab.fileName;
+            tab.fileExtension = nextPath === newFile.path ? newFile.extension : tab.fileExtension;
+          }
+        }
+        if (tab.currentDirectory) tab.currentDirectory = replacePath(tab.currentDirectory);
+      });
+      void this.persist();
+    },
     async close(id?: string) {
       const targetId = id ?? this.activeId;
       const index = this.tabs.findIndex((tab) => tab.id === targetId);

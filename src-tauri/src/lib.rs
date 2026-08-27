@@ -45,6 +45,7 @@ pub fn run() {
             commands::app::install_libreoffice,
             commands::workspace::convert_office_to_pdf,
             commands::workspace::copy_entry,
+            commands::workspace::move_entry,
             commands::workspace::has_system_clipboard_files,
             commands::workspace::copy_entry_to_system_clipboard,
             commands::workspace::paste_system_clipboard_entries,

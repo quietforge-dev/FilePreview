@@ -118,6 +118,36 @@ impl WorkspaceService {
             .map_err(|_| AppError::CopyTaskFailed)?
     }
 
+    pub async fn move_entry(
+        &self,
+        source: String,
+        destination_directory: String,
+    ) -> Result<FileInfo, AppError> {
+        let root = self.workspace_root()?;
+        let requested_source = PathBuf::from(&source);
+        if fs::symlink_metadata(&requested_source)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(AppError::SymbolicLinkNotSupported);
+        }
+        let source = self.authorized_path(&root, Some(&source))?;
+        let destination_directory = self.authorized_path(&root, Some(&destination_directory))?;
+        if source == root {
+            return Err(AppError::CannotMoveWorkspaceRoot);
+        }
+        if !destination_directory.is_dir() {
+            return Err(AppError::NotDirectory);
+        }
+        if source.is_dir() && destination_directory.starts_with(&source) {
+            return Err(AppError::CannotMoveIntoSelf);
+        }
+
+        tokio::task::spawn_blocking(move || filesystem::move_entry(&source, &destination_directory))
+            .await
+            .map_err(|_| AppError::MoveTaskFailed)?
+    }
+
     pub async fn has_system_clipboard_files(&self) -> bool {
         tokio::task::spawn_blocking(filesystem::system_clipboard_file_paths)
             .await
@@ -655,5 +685,112 @@ mod tests {
         fs::remove_file(source).expect("应清理工作区外源文件");
         fs::remove_dir_all(root).expect("应清理导入测试工作区");
         fs::remove_dir_all(outside).expect("应清理工作区外目录");
+    }
+
+    #[tokio::test]
+    async fn moves_an_entry_inside_the_workspace() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-move-{suffix}"));
+        let source_dir = root.join("source");
+        let destination_dir = root.join("destination");
+        fs::create_dir_all(&source_dir).expect("应创建移动源目录");
+        fs::create_dir_all(&destination_dir).expect("应创建移动目标目录");
+        let source = source_dir.join("notes.md");
+        fs::write(&source, "content").expect("应写入移动源文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开移动测试工作区");
+        let moved = service
+            .move_entry(
+                source.to_string_lossy().to_string(),
+                destination_dir.to_string_lossy().to_string(),
+            )
+            .await
+            .expect("应移动文件");
+
+        assert_eq!(
+            moved.path,
+            destination_dir
+                .join("notes.md")
+                .canonicalize()
+                .expect("应解析移动后的文件路径")
+                .to_string_lossy()
+        );
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_to_string(destination_dir.join("notes.md")).unwrap(),
+            "content"
+        );
+        fs::remove_dir_all(root).expect("应清理移动测试目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_moving_a_directory_into_itself() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-move-self-{suffix}"));
+        let source_dir = root.join("source");
+        let child_dir = source_dir.join("child");
+        fs::create_dir_all(&child_dir).expect("应创建移动自包含测试目录");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开移动测试工作区");
+        let error = service
+            .move_entry(
+                source_dir.to_string_lossy().to_string(),
+                child_dir.to_string_lossy().to_string(),
+            )
+            .await
+            .expect_err("不应将目录移动到自身子目录");
+
+        assert!(matches!(error, crate::error::AppError::CannotMoveIntoSelf));
+        fs::remove_dir_all(root).expect("应清理移动自包含测试目录");
+    }
+
+    #[tokio::test]
+    async fn rejects_moving_over_an_existing_entry() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("系统时间应晚于 Unix 纪元")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("filepreview-move-existing-{suffix}"));
+        let source_dir = root.join("source");
+        let destination_dir = root.join("destination");
+        fs::create_dir_all(&source_dir).expect("应创建同名移动源目录");
+        fs::create_dir_all(&destination_dir).expect("应创建同名移动目标目录");
+        fs::write(source_dir.join("notes.md"), "source").expect("应写入移动源文件");
+        fs::write(destination_dir.join("notes.md"), "destination").expect("应写入已有目标文件");
+
+        let service = WorkspaceService::default();
+        service
+            .open_workspace(root.to_string_lossy().to_string())
+            .expect("应打开同名移动测试工作区");
+        let error = service
+            .move_entry(
+                source_dir.join("notes.md").to_string_lossy().to_string(),
+                destination_dir.to_string_lossy().to_string(),
+            )
+            .await
+            .expect_err("不应覆盖已有目标文件");
+
+        assert!(matches!(error, crate::error::AppError::MoveTargetExists));
+        assert_eq!(
+            fs::read_to_string(source_dir.join("notes.md")).unwrap(),
+            "source"
+        );
+        assert_eq!(
+            fs::read_to_string(destination_dir.join("notes.md")).unwrap(),
+            "destination"
+        );
+        fs::remove_dir_all(root).expect("应清理同名移动测试目录");
     }
 }

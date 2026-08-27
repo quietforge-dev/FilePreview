@@ -125,6 +125,22 @@ pub fn copy_entry(source: &Path, destination_directory: &Path) -> Result<FileInf
     file_info(&destination)
 }
 
+pub fn move_entry(source: &Path, destination_directory: &Path) -> Result<FileInfo, AppError> {
+    let file_type = fs::symlink_metadata(source)?.file_type();
+    if file_type.is_symlink() {
+        return Err(AppError::SymbolicLinkNotSupported);
+    }
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "无法确定文件名"))?;
+    let destination = destination_directory.join(file_name);
+    if destination.exists() {
+        return Err(AppError::MoveTargetExists);
+    }
+    fs::rename(source, &destination)?;
+    file_info(&destination)
+}
+
 pub fn copy_entries(
     sources: &[PathBuf],
     destination_directory: &Path,

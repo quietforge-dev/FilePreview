@@ -68,6 +68,27 @@ export const useMarkdownEditorStore = defineStore('markdownEditor', {
     remove(path: string) {
       delete this.sessions[path];
     },
+    movePath(oldPath: string, newFile: FileInfo) {
+      const normalized = oldPath.toLowerCase();
+      Object.entries(this.sessions).forEach(([path, session]) => {
+        const current = path.toLowerCase();
+        if (
+          current !== normalized &&
+          !current.startsWith(`${normalized}\\`) &&
+          !current.startsWith(`${normalized}/`)
+        )
+          return;
+        delete this.sessions[path];
+        const nextPath = `${newFile.path}${path.slice(oldPath.length)}`;
+        session.file = {
+          ...session.file,
+          path: nextPath,
+          name: current === normalized ? newFile.name : session.file.name,
+          extension: current === normalized ? newFile.extension : session.file.extension,
+        };
+        this.sessions[nextPath] = session;
+      });
+    },
     clear() {
       this.sessions = {};
     },

@@ -83,6 +83,7 @@
           @open="openDirectory"
           @select="selectEntry"
           @contextmenu="openContextMenu"
+          @move="moveEntryToDirectory"
         />
       </aside>
       <div
@@ -470,6 +471,46 @@ const createFileInContextDirectory = async () => {
   } catch (error) {
     if (error === 'cancel' || error === 'close') return;
     ElMessage.error(`创建文件失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+const moveEntryToDirectory = async (source: FileInfo, destinationDirectory: string) => {
+  const isAtOrBelow = (candidate: string, parent: string) => {
+    const normalizedCandidate = candidate.toLowerCase();
+    const normalizedParent = parent.toLowerCase();
+    return (
+      normalizedCandidate === normalizedParent ||
+      normalizedCandidate.startsWith(`${normalizedParent}\\`) ||
+      normalizedCandidate.startsWith(`${normalizedParent}/`)
+    );
+  };
+  if (source.isDirectory && isAtOrBelow(destinationDirectory, source.path)) {
+    ElMessage.warning('不能将文件夹移动到它自身或其子目录中');
+    return;
+  }
+  const affectedMarkdownPaths = filePathsForTabs(tabs.tabs).filter((path) =>
+    isAtOrBelow(path, source.path),
+  );
+  if (!(await confirmMarkdownChanges(affectedMarkdownPaths))) return;
+
+  try {
+    const moved = await workspace.moveEntry(source.path, destinationDirectory);
+    const remapEntry = (entry: FileInfo) => ({
+      ...entry,
+      path: `${moved.path}${entry.path.slice(source.path.length)}`,
+    });
+    tabs.movePath(source.path, moved);
+    markdownEditor.movePath(source.path, moved);
+    preview.movePath(source.path, moved);
+    if (selectedEntry.value && isAtOrBelow(selectedEntry.value.path, source.path)) {
+      selectedEntry.value = remapEntry(selectedEntry.value);
+    }
+    if (copiedEntry.value && isAtOrBelow(copiedEntry.value.path, source.path)) {
+      copiedEntry.value = remapEntry(copiedEntry.value);
+    }
+    if (search.mode === 'name' && search.query.trim()) void search.searchNames();
+    ElMessage.success(`已移动 ${source.name}`);
+  } catch (error) {
+    ElMessage.error(`移动失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
 const isPathAtOrBelow = (candidate: string, parent: string) => {

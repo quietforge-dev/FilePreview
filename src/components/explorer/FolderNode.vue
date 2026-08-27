@@ -14,6 +14,7 @@
         :class="{ active: selectedPath === entry.path }"
         :style="{ paddingLeft: `${depth * 16 + 10}px` }"
         @click="emit('select', entry)"
+        @pointerdown.left="emit('pointer-drag-start', entry, $event)"
         @contextmenu.prevent="emit('contextmenu', entry, $event)"
       >
         <el-icon><Document /></el-icon><span>{{ entry.name }}</span>
@@ -22,9 +23,14 @@
     <template v-else>
       <button
         class="tree-node"
-        :class="{ active: activeDirectory === entry.path }"
+        :class="{
+          active: activeDirectory === entry.path,
+          'drop-target': dragOverPath === entry.path,
+        }"
         :style="{ paddingLeft: `${depth * 16 + 10}px` }"
         @click="toggle(entry.path)"
+        @pointerdown.left="emit('pointer-drag-start', entry, $event)"
+        :data-drop-path="entry.path"
         @contextmenu.prevent="emit('contextmenu', entry, $event)"
       >
         <el-icon class="expand-icon"
@@ -41,9 +47,12 @@
           :depth="depth + 1"
           :active-directory="activeDirectory"
           :selected-path="selectedPath"
+          :dragged-path="draggedPath"
+          :drag-over-path="dragOverPath"
           @open="emit('open', $event)"
           @select="emit('select', $event)"
           @contextmenu="forwardContextMenu"
+          @pointer-drag-start="(file, event) => emit('pointer-drag-start', file, event)"
         />
       </div>
     </template>
@@ -61,11 +70,14 @@ const props = defineProps<{
   depth: number;
   activeDirectory: string;
   selectedPath?: string;
+  draggedPath?: string;
+  dragOverPath?: string;
 }>();
 const emit = defineEmits<{
   open: [path: string];
   select: [file: FileInfo];
   contextmenu: [file: FileInfo, event: MouseEvent];
+  'pointer-drag-start': [file: FileInfo, event: PointerEvent];
 }>();
 const workspace = useWorkspaceStore();
 const expandedPaths = ref(new Set<string>());
@@ -131,8 +143,20 @@ const formatTime = (seconds: number | null) =>
   text-align: left;
   width: 100%;
 }
+.tree-node {
+  cursor: grab;
+  user-select: none;
+}
+.tree-node:active {
+  cursor: grabbing;
+}
 .tree-node.active {
   background: #e9f1ff;
+  color: #1d4ed8;
+}
+.tree-node.drop-target {
+  background: #dbeafe;
+  box-shadow: inset 0 0 0 1px #3b82f6;
   color: #1d4ed8;
 }
 .expand-icon {

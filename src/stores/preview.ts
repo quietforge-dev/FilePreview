@@ -65,5 +65,22 @@ export const usePreviewStore = defineStore('preview', {
     updateFileMetadata(file: FileInfo) {
       if (this.file?.path === file.path) this.file = file;
     },
+    movePath(oldPath: string, newFile: FileInfo) {
+      if (!this.file) return;
+      const normalized = oldPath.toLowerCase();
+      const current = this.file.path.toLowerCase();
+      if (
+        current !== normalized &&
+        !current.startsWith(`${normalized}\\`) &&
+        !current.startsWith(`${normalized}/`)
+      )
+        return;
+      this.file = {
+        ...this.file,
+        path: `${newFile.path}${this.file.path.slice(oldPath.length)}`,
+        name: current === normalized ? newFile.name : this.file.name,
+        extension: current === normalized ? newFile.extension : this.file.extension,
+      };
+    },
   },
 });
