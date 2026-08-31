@@ -144,6 +144,7 @@ import { getAppVersion, openProjectUrl } from '../api/app';
 import { getFileInfo, type ContentSearchResult } from '../api/file';
 import {
   copyPathToClipboard,
+  copyTextToClipboard,
   openWithDefaultApplication,
   revealInFileManager,
 } from '../api/system';
@@ -197,6 +198,7 @@ const activeResize = ref(false);
 const selectedEntry = ref<FileInfo | null>(null);
 const copiedEntry = ref<FileInfo | null>(null);
 const systemClipboardHasFiles = ref(false);
+const copying = ref(false);
 const contextMenu = ref<FileContextMenu | null>(null);
 const historyDialog = ref<HistoryDialog | null>(null);
 const workspaceSearchPanel = ref<{ focus: () => void }>();
@@ -371,6 +373,36 @@ const copySelectedEntry = async (entry: FileInfo) => {
     ElMessage.error(`复制失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
+const selectedText = () => {
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+    const start = activeElement.selectionStart;
+    const end = activeElement.selectionEnd;
+    if (start !== null && end !== null && start !== end)
+      return activeElement.value.slice(start, end);
+  }
+  return window.getSelection()?.toString() ?? '';
+};
+const copySelectionOrSelectedEntry = async () => {
+  if (copying.value) return;
+  copying.value = true;
+  try {
+    const text = selectedText();
+    if (text.trim()) {
+      await copyTextToClipboard(text);
+      copiedEntry.value = null;
+      systemClipboardHasFiles.value = false;
+      contextMenu.value = null;
+      ElMessage.success('已复制选中文本');
+      return;
+    }
+    if (selectedEntry.value) await copySelectedEntry(selectedEntry.value);
+  } catch (error) {
+    ElMessage.error(`复制文本失败：${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    copying.value = false;
+  }
+};
 const copyContextEntry = () => {
   const entry = contextEntry();
   if (entry) void copySelectedEntry(entry);
@@ -444,6 +476,8 @@ const copyContextEntryPath = async () => {
   if (!entry) return;
   try {
     await copyPathToClipboard(entry.path);
+    copiedEntry.value = null;
+    systemClipboardHasFiles.value = false;
     ElMessage.success('路径已复制到剪贴板');
   } catch (error) {
     ElMessage.error(`复制路径失败：${error instanceof Error ? error.message : String(error)}`);
@@ -628,9 +662,10 @@ const handleKeyboardShortcut = (event: KeyboardEvent) => {
     return;
   }
 
-  if (event.key.toLowerCase() === 'c' && selectedEntry.value) {
+  if (event.key.toLowerCase() === 'c') {
     event.preventDefault();
-    void copySelectedEntry(selectedEntry.value);
+    void copySelectionOrSelectedEntry();
+    return;
   }
   if (event.key.toLowerCase() === 'v' && workspace.currentDirectory) {
     event.preventDefault();
@@ -794,7 +829,7 @@ const handleMenuAction = (action: string) => {
       closeActiveTab();
       break;
     case 'copy':
-      if (selectedEntry.value) void copySelectedEntry(selectedEntry.value);
+      void copySelectionOrSelectedEntry();
       break;
     case 'paste':
       void pasteEntry();
