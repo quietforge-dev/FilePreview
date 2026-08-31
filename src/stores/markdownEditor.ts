@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { writeMarkdownFile } from '../api/file';
 import type { FileInfo } from '../types/file';
 
-export type MarkdownEditorMode = 'preview' | 'edit';
+export type MarkdownEditorMode = 'preview' | 'edit' | 'split';
 
 export interface MarkdownEditorSession {
   file: FileInfo;

@@ -23,6 +23,15 @@
               @click="setMarkdownMode('edit')"
             />
           </el-tooltip>
+          <el-tooltip content="分屏实时预览" placement="bottom">
+            <el-button
+              :icon="Columns2"
+              :disabled="markdownSession.mode === 'split'"
+              circle
+              aria-label="分屏实时预览 Markdown"
+              @click="setMarkdownMode('split')"
+            />
+          </el-tooltip>
           <el-tooltip content="保存" placement="bottom">
             <el-button
               :icon="Save"
@@ -40,8 +49,7 @@
       v-loading="loading"
       class="preview-body"
       :class="{
-        'markdown-preview-body':
-          content?.kind === 'markdown' && markdownSession?.mode === 'preview',
+        'markdown-preview-body': content?.kind === 'markdown' && markdownSession?.mode !== 'edit',
       }"
     >
       <el-empty v-if="!file && !loading" description="选择一个文件开始预览" :image-size="86" />
@@ -57,25 +65,34 @@
         <MarkdownEditor
           v-if="markdownSession.mode === 'edit'"
           :model-value="markdownSession.source"
-          @update:model-value="markdownEditor.updateSource(file!.path, $event)"
+          @update:model-value="updateMarkdownSource($event)"
           @save="saveMarkdown"
         />
         <div
           v-else
-          class="markdown-layout"
-          :class="{ 'without-outline': !content.headings.length }"
+          class="markdown-workbench"
+          :class="{ 'markdown-split-layout': markdownSession.mode === 'split' }"
         >
-          <MarkdownOutline
-            v-if="content.headings.length"
-            :headings="content.headings"
-            :active-id="activeHeadingId"
-            @navigate="markdownPreview?.scrollToHeading($event)"
-          />
-          <MarkdownPreview
-            ref="markdownPreview"
-            :html="content.html"
-            @active-heading-change="activeHeadingId = $event"
-          />
+          <div v-if="markdownSession.mode === 'split'" class="markdown-editor-pane">
+            <MarkdownEditor
+              :model-value="markdownSession.source"
+              @update:model-value="updateMarkdownSource($event)"
+              @save="saveMarkdown"
+            />
+          </div>
+          <div class="markdown-layout">
+            <MarkdownOutline
+              v-if="content.headings.length && markdownSession.mode !== 'split'"
+              :headings="content.headings"
+              :active-id="activeHeadingId"
+              @navigate="markdownPreview?.scrollToHeading($event)"
+            />
+            <MarkdownPreview
+              ref="markdownPreview"
+              :html="content.html"
+              @active-heading-change="activeHeadingId = $event"
+            />
+          </div>
         </div>
       </template>
       <TextPreview
@@ -131,9 +148,9 @@ import TextPreview from './TextPreview.vue';
 import { useOfficeRuntimeStore } from '../../stores/officeRuntime';
 import { useMarkdownEditorStore } from '../../stores/markdownEditor';
 import { usePreviewStore } from '../../stores/preview';
-import { Eye, Pencil, Save } from 'lucide-vue-next';
+import { Columns2, Eye, Pencil, Save } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps<{
   file: FileInfo | null;
@@ -147,6 +164,7 @@ const markdownEditor = useMarkdownEditorStore();
 const preview = usePreviewStore();
 const markdownPreview = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const activeHeadingId = ref<string | null>(null);
+let markdownRenderTimer: ReturnType<typeof setTimeout> | null = null;
 const markdownSession = computed(() =>
   props.file ? (markdownEditor.sessions[props.file.path] ?? null) : null,
 );
@@ -179,9 +197,31 @@ watch(
   { immediate: true },
 );
 
-const setMarkdownMode = async (mode: 'preview' | 'edit') => {
+const clearScheduledMarkdownRender = () => {
+  if (markdownRenderTimer) clearTimeout(markdownRenderTimer);
+  markdownRenderTimer = null;
+};
+const renderMarkdownPreview = (source: string) =>
+  preview.renderMarkdownSource(source).catch((error) => {
+    ElMessage.error(`Markdown 渲染失败：${error instanceof Error ? error.message : String(error)}`);
+  });
+const scheduleMarkdownPreview = (path: string, source: string) => {
+  clearScheduledMarkdownRender();
+  markdownRenderTimer = setTimeout(() => {
+    markdownRenderTimer = null;
+    if (props.file?.path !== path || markdownSession.value?.mode !== 'split') return;
+    void renderMarkdownPreview(source);
+  }, 180);
+};
+const updateMarkdownSource = (source: string) => {
+  if (!props.file) return;
+  markdownEditor.updateSource(props.file.path, source);
+  if (markdownSession.value?.mode === 'split') scheduleMarkdownPreview(props.file.path, source);
+};
+const setMarkdownMode = async (mode: 'preview' | 'edit' | 'split') => {
   if (!props.file || !markdownSession.value) return;
-  if (mode === 'preview') await preview.renderMarkdownSource(markdownSession.value.source);
+  clearScheduledMarkdownRender();
+  if (mode !== 'edit') await renderMarkdownPreview(markdownSession.value.source);
   markdownEditor.setMode(props.file.path, mode);
 };
 const saveMarkdown = async () => {
@@ -220,6 +260,8 @@ const installLibreOffice = async () => {
   }
 };
 const openDownloadPage = () => void officeRuntime.openDownloadPage();
+
+onBeforeUnmount(clearScheduledMarkdownRender);
 </script>
 
 <style scoped lang="scss">
@@ -265,14 +307,42 @@ const openDownloadPage = () => void officeRuntime.openDownloadPage();
   flex-direction: column;
   overflow: hidden;
 }
+.markdown-workbench {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.markdown-split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+}
+.markdown-editor-pane {
+  border-right: 1px solid #e1e6ed;
+  min-height: 0;
+  min-width: 0;
+}
 .markdown-layout {
   display: flex;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 .markdown-layout > :last-child {
   flex: 1;
   min-width: 0;
+}
+@media (max-width: 1180px) {
+  .markdown-split-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .markdown-editor-pane {
+    border-bottom: 1px solid #e1e6ed;
+    border-right: 0;
+    flex: 0 0 48%;
+  }
 }
 .markdown-conflict {
   align-items: center;
