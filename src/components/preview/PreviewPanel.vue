@@ -50,6 +50,7 @@
       class="preview-body"
       :class="{
         'markdown-preview-body': content?.kind === 'markdown' && markdownSession?.mode !== 'edit',
+        'image-preview-body': content?.kind === 'image',
       }"
     >
       <el-empty v-if="!file && !loading" description="选择一个文件开始预览" :image-size="86" />
@@ -125,9 +126,7 @@
           <p v-if="officeRuntime.error" class="office-error">{{ officeRuntime.error }}</p>
         </template>
       </el-result>
-      <div v-else-if="content?.kind === 'image'" class="image-preview">
-        <img :src="content.url" :alt="file?.name" />
-      </div>
+      <ImagePreview v-else-if="content?.kind === 'image'" :url="content.url" :alt="file?.name" />
       <el-result
         v-else-if="content?.kind === 'unsupported'"
         icon="warning"
@@ -143,6 +142,7 @@ import type { FileInfo, PreviewContent } from '../../types/file';
 import MarkdownPreview from './MarkdownPreview.vue';
 import MarkdownOutline from './MarkdownOutline.vue';
 import MarkdownEditor from './MarkdownEditor.vue';
+import ImagePreview from './ImagePreview.vue';
 import PdfPreview from './PdfPreview.vue';
 import TextPreview from './TextPreview.vue';
 import { useOfficeRuntimeStore } from '../../stores/officeRuntime';
@@ -307,6 +307,10 @@ onBeforeUnmount(clearScheduledMarkdownRender);
   flex-direction: column;
   overflow: hidden;
 }
+.preview-body.image-preview-body {
+  display: flex;
+  overflow: hidden;
+}
 .markdown-workbench {
   display: flex;
   flex: 1;
@@ -353,19 +357,6 @@ onBeforeUnmount(clearScheduledMarkdownRender);
   font-size: 13px;
   gap: 8px;
   padding: 7px 16px;
-}
-.image-preview {
-  align-items: flex-start;
-  background: repeating-conic-gradient(#f2f4f7 0% 25%, #fff 0% 50%) 50% / 20px 20px;
-  display: flex;
-  justify-content: center;
-  min-height: 100%;
-  padding: 32px;
-}
-.image-preview img {
-  height: auto;
-  max-width: 100%;
-  width: 100%;
 }
 .office-actions {
   display: flex;
