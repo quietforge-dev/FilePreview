@@ -36,7 +36,14 @@
         </template>
       </div>
     </header>
-    <div v-loading="loading" class="preview-body">
+    <div
+      v-loading="loading"
+      class="preview-body"
+      :class="{
+        'markdown-preview-body':
+          content?.kind === 'markdown' && markdownSession?.mode === 'preview',
+      }"
+    >
       <el-empty v-if="!file && !loading" description="选择一个文件开始预览" :image-size="86" />
       <el-result v-else-if="error" icon="error" title="无法预览" :sub-title="error" />
       <template v-else-if="content?.kind === 'markdown' && markdownSession">
@@ -53,7 +60,23 @@
           @update:model-value="markdownEditor.updateSource(file!.path, $event)"
           @save="saveMarkdown"
         />
-        <MarkdownPreview v-else :html="content.html" />
+        <div
+          v-else
+          class="markdown-layout"
+          :class="{ 'without-outline': !content.headings.length }"
+        >
+          <MarkdownOutline
+            v-if="content.headings.length"
+            :headings="content.headings"
+            :active-id="activeHeadingId"
+            @navigate="markdownPreview?.scrollToHeading($event)"
+          />
+          <MarkdownPreview
+            ref="markdownPreview"
+            :html="content.html"
+            @active-heading-change="activeHeadingId = $event"
+          />
+        </div>
       </template>
       <TextPreview
         v-else-if="content?.kind === 'text'"
@@ -101,6 +124,7 @@
 <script setup lang="ts">
 import type { FileInfo, PreviewContent } from '../../types/file';
 import MarkdownPreview from './MarkdownPreview.vue';
+import MarkdownOutline from './MarkdownOutline.vue';
 import MarkdownEditor from './MarkdownEditor.vue';
 import PdfPreview from './PdfPreview.vue';
 import TextPreview from './TextPreview.vue';
@@ -109,7 +133,7 @@ import { useMarkdownEditorStore } from '../../stores/markdownEditor';
 import { usePreviewStore } from '../../stores/preview';
 import { Eye, Pencil, Save } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
   file: FileInfo | null;
@@ -121,11 +145,19 @@ const emit = defineEmits<{ retry: []; reloadMarkdown: [] }>();
 const officeRuntime = useOfficeRuntimeStore();
 const markdownEditor = useMarkdownEditorStore();
 const preview = usePreviewStore();
+const markdownPreview = ref<InstanceType<typeof MarkdownPreview> | null>(null);
+const activeHeadingId = ref<string | null>(null);
 const markdownSession = computed(() =>
   props.file ? (markdownEditor.sessions[props.file.path] ?? null) : null,
 );
 const isEditableMarkdown = computed(
   () => props.file && ['md', 'markdown'].includes(props.file.extension),
+);
+
+watch(
+  () => (props.content?.kind === 'markdown' ? (props.content.headings[0]?.id ?? null) : null),
+  (headingId) => (activeHeadingId.value = headingId),
+  { immediate: true },
 );
 
 watch(
@@ -227,6 +259,20 @@ const openDownloadPage = () => void officeRuntime.openDownloadPage();
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.preview-body.markdown-preview-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.markdown-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.markdown-layout > :last-child {
+  flex: 1;
+  min-width: 0;
 }
 .markdown-conflict {
   align-items: center;

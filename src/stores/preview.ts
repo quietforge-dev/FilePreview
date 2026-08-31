@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { recordBrowsedFile } from '../api/history';
 import { previewManager } from '../services/preview/PreviewManager';
-import { renderMarkdownSource } from '../services/preview/MarkdownRenderer';
+import { renderMarkdownDocument } from '../services/preview/MarkdownRenderer';
 import type { FileInfo, PreviewContent } from '../types/file';
 import { useHistoryStore } from './history';
 
@@ -54,12 +54,12 @@ export const usePreviewStore = defineStore('preview', {
       const version = ++this.renderVersion;
       if (this.content?.kind !== 'markdown') return;
       const filePath = this.file?.path;
-      const html = await renderMarkdownSource(source);
+      const document = await renderMarkdownDocument(source);
       if (version !== this.renderVersion || this.file?.path !== filePath) return;
       this.content = {
         kind: 'markdown',
         source,
-        html,
+        ...document,
       };
     },
     updateFileMetadata(file: FileInfo) {
