@@ -1,6 +1,6 @@
 [package]
 name = "file-preview"
-version = "0.0.10"
+version = "0.0.11"
 description = "Local-first file explorer and previewer"
 authors = ["FilePreview"]
 edition = "2021"
