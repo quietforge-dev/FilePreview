@@ -118,6 +118,13 @@
             >
               安装 LibreOffice
             </el-button>
+            <el-button
+              :icon="ExternalLink"
+              :loading="openingDefaultApplication"
+              @click="openFileWithDefaultApplication"
+            >
+              用系统默认程序打开
+            </el-button>
             <el-button @click="openDownloadPage">官方下载</el-button>
             <el-button :loading="officeRuntime.checking" @click="retryOfficePreview">
               重新检测
@@ -132,7 +139,18 @@
         icon="warning"
         title="暂不支持预览"
         :sub-title="content.message"
-      />
+      >
+        <template #extra>
+          <el-button
+            type="primary"
+            :icon="ExternalLink"
+            :loading="openingDefaultApplication"
+            @click="openFileWithDefaultApplication"
+          >
+            用系统默认程序打开
+          </el-button>
+        </template>
+      </el-result>
     </div>
   </section>
 </template>
@@ -145,10 +163,11 @@ import MarkdownEditor from './MarkdownEditor.vue';
 import ImagePreview from './ImagePreview.vue';
 import PdfPreview from './PdfPreview.vue';
 import TextPreview from './TextPreview.vue';
+import { openWithDefaultApplication } from '../../api/system';
 import { useOfficeRuntimeStore } from '../../stores/officeRuntime';
 import { useMarkdownEditorStore } from '../../stores/markdownEditor';
 import { usePreviewStore } from '../../stores/preview';
-import { Columns2, Eye, Pencil, Save } from 'lucide-vue-next';
+import { Columns2, ExternalLink, Eye, Pencil, Save } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
@@ -164,6 +183,7 @@ const markdownEditor = useMarkdownEditorStore();
 const preview = usePreviewStore();
 const markdownPreview = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const activeHeadingId = ref<string | null>(null);
+const openingDefaultApplication = ref(false);
 let markdownRenderTimer: ReturnType<typeof setTimeout> | null = null;
 const markdownSession = computed(() =>
   props.file ? (markdownEditor.sessions[props.file.path] ?? null) : null,
@@ -260,6 +280,18 @@ const installLibreOffice = async () => {
   }
 };
 const openDownloadPage = () => void officeRuntime.openDownloadPage();
+const openFileWithDefaultApplication = async () => {
+  if (!props.file || openingDefaultApplication.value) return;
+  openingDefaultApplication.value = true;
+  try {
+    await openWithDefaultApplication(props.file.path);
+    ElMessage.success('已使用系统默认程序打开');
+  } catch (error) {
+    ElMessage.error(`打开失败：${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    openingDefaultApplication.value = false;
+  }
+};
 
 onBeforeUnmount(clearScheduledMarkdownRender);
 </script>
