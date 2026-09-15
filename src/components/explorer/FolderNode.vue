@@ -12,6 +12,7 @@
       <button
         class="tree-node"
         :class="{ active: selectedPath === entry.path }"
+        :data-tree-path="entry.path"
         :style="{ paddingLeft: `${depth * 16 + 10}px` }"
         @click="emit('select', entry)"
         @pointerdown.left="emit('pointer-drag-start', entry, $event)"
@@ -28,9 +29,10 @@
           'drop-target': dragOverPath === entry.path,
         }"
         :style="{ paddingLeft: `${depth * 16 + 10}px` }"
-        @click="toggle(entry.path)"
+        @click="emit('toggle', entry.path)"
         @pointerdown.left="emit('pointer-drag-start', entry, $event)"
         :data-drop-path="entry.path"
+        :data-tree-path="entry.path"
         @contextmenu.prevent="emit('contextmenu', entry, $event)"
       >
         <el-icon class="expand-icon"
@@ -49,6 +51,8 @@
           :selected-path="selectedPath"
           :dragged-path="draggedPath"
           :drag-over-path="dragOverPath"
+          :expanded-paths="expandedPaths"
+          @toggle="emit('toggle', $event)"
           @open="emit('open', $event)"
           @select="emit('select', $event)"
           @contextmenu="forwardContextMenu"
@@ -61,7 +65,6 @@
 
 <script setup lang="ts">
 import { CaretBottom, CaretRight, Document, Folder, FolderOpened } from '@element-plus/icons-vue';
-import { ref, watch } from 'vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { FileInfo } from '../../types/file';
 
@@ -72,48 +75,16 @@ const props = defineProps<{
   selectedPath?: string;
   draggedPath?: string;
   dragOverPath?: string;
+  expandedPaths: Set<string>;
 }>();
 const emit = defineEmits<{
   open: [path: string];
   select: [file: FileInfo];
   contextmenu: [file: FileInfo, event: MouseEvent];
   'pointer-drag-start': [file: FileInfo, event: PointerEvent];
+  toggle: [path: string];
 }>();
 const workspace = useWorkspaceStore();
-const expandedPaths = ref(new Set<string>());
-watch(
-  () => workspace.directoryEntries,
-  () => {
-    const knownDirectories = new Set(
-      Object.values(workspace.directoryEntries)
-        .flat()
-        .filter((entry) => entry.isDirectory)
-        .map((entry) => entry.path),
-    );
-    const next = new Set([...expandedPaths.value].filter((path) => knownDirectories.has(path)));
-    if (next.size !== expandedPaths.value.size) expandedPaths.value = next;
-  },
-  { deep: true },
-);
-
-const toggle = async (path: string) => {
-  const next = new Set(expandedPaths.value);
-  if (next.has(path)) {
-    next.delete(path);
-    expandedPaths.value = next;
-    emit('open', path);
-    return;
-  }
-
-  next.add(path);
-  expandedPaths.value = next;
-  emit('open', path);
-  try {
-    await workspace.ensureDirectoryLoaded(path);
-  } catch {
-    // 错误由工作区状态显示，已展开的节点允许用户再次尝试。
-  }
-};
 
 const forwardContextMenu = (file: FileInfo, event: MouseEvent) => emit('contextmenu', file, event);
 

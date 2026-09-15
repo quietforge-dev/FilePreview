@@ -75,11 +75,12 @@
           @open-directory="openSearchDirectory"
         />
         <FolderTree
+          ref="folderTree"
           v-if="!showSearchResults"
           :workspace="workspace.workspace"
           :entries="workspace.rootEntries"
           :path="workspace.currentDirectory"
-          :selected-path="selectedEntry?.path ?? preview.file?.path"
+          :selected-path="selectedPath"
           @open="openDirectory"
           @select="selectEntry"
           @contextmenu="openContextMenu"
@@ -202,6 +203,7 @@ const copying = ref(false);
 const contextMenu = ref<FileContextMenu | null>(null);
 const historyDialog = ref<HistoryDialog | null>(null);
 const workspaceSearchPanel = ref<{ focus: () => void }>();
+const folderTree = ref<InstanceType<typeof FolderTree> | null>(null);
 const layoutStyle = computed(() => ({
   '--folder-width': `${folderWidth.value}px`,
 }));
@@ -226,6 +228,7 @@ const historyDialogEmptyText = computed(() =>
 const showSearchResults = computed(
   () => Boolean(search.query.trim()) && (search.searched || search.loading),
 );
+const selectedPath = computed(() => preview.file?.path);
 const setSearchMode = (mode: WorkspaceSearchMode) => search.setMode(mode);
 const setSearchQuery = (query: string) => search.setQuery(query);
 const runWorkspaceSearch = () => {
@@ -316,9 +319,15 @@ const confirmMarkdownChanges = async (paths: string[]) => {
     return false;
   }
 };
+const revealCurrentFile = async () => {
+  const filePath = preview.file?.path;
+  if (!filePath) return;
+  await nextTick();
+  await folderTree.value?.revealPath(filePath);
+};
 const activateTab = async (id: string) => {
   if (id === tabs.activeId || !(await confirmMarkdownChanges(activeFilePath()))) return;
-  await tabs.activate(id);
+  if (await tabs.activate(id)) await revealCurrentFile();
 };
 const closeTab = async (id: string) => {
   const target = tabs.tabs.find((tab) => tab.id === id);
@@ -868,6 +877,18 @@ let periodicUpdateTimer: number | undefined;
 let unlistenMenu: UnlistenFn | undefined;
 let unlistenFileWatch: UnlistenFn | undefined;
 let nameSearchTimer: number | undefined;
+
+watch(
+  [
+    () => tabs.activeId,
+    () => tabs.activeTab?.filePath,
+    () => preview.file?.path,
+    () => workspace.workspace?.path,
+    () => showSearchResults.value,
+  ],
+  () => void revealCurrentFile(),
+  { flush: 'post' },
+);
 
 watch([() => search.mode, () => search.query, () => workspace.workspace?.path], () => {
   if (nameSearchTimer !== undefined) window.clearTimeout(nameSearchTimer);
