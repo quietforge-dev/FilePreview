@@ -5,6 +5,13 @@ import { renderMarkdownDocument } from '../services/preview/MarkdownRenderer';
 import type { FileInfo, PreviewContent } from '../types/file';
 import { useHistoryStore } from './history';
 
+const releasePreviewContent = (content: PreviewContent | null) => {
+  if (content?.kind === 'image') URL.revokeObjectURL(content.url);
+  if (content?.kind === 'markdown') {
+    content.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  }
+};
+
 export const usePreviewStore = defineStore('preview', {
   state: () => ({
     file: null as FileInfo | null,
@@ -16,7 +23,7 @@ export const usePreviewStore = defineStore('preview', {
   actions: {
     async preview(file: FileInfo) {
       const version = ++this.renderVersion;
-      if (this.content?.kind === 'image') URL.revokeObjectURL(this.content.url);
+      releasePreviewContent(this.content);
       this.file = file;
       this.content = null;
       this.loading = true;
@@ -30,7 +37,7 @@ export const usePreviewStore = defineStore('preview', {
         }
         const content = await previewManager.render(file);
         if (version !== this.renderVersion) {
-          if (content.kind === 'image') URL.revokeObjectURL(content.url);
+          releasePreviewContent(content);
           return;
         }
         this.content = content;
@@ -44,18 +51,23 @@ export const usePreviewStore = defineStore('preview', {
     },
     clear() {
       this.renderVersion += 1;
-      if (this.content?.kind === 'image') URL.revokeObjectURL(this.content.url);
+      releasePreviewContent(this.content);
       this.file = null;
       this.content = null;
       this.loading = false;
       this.error = '';
     },
     async renderMarkdownSource(source: string) {
+      if (this.content?.kind !== 'markdown' || !this.file) return;
       const version = ++this.renderVersion;
-      if (this.content?.kind !== 'markdown') return;
-      const filePath = this.file?.path;
-      const document = await renderMarkdownDocument(source);
-      if (version !== this.renderVersion || this.file?.path !== filePath) return;
+      const previousContent = this.content;
+      const filePath = this.file.path;
+      const document = await renderMarkdownDocument(source, filePath);
+      if (version !== this.renderVersion || this.file?.path !== filePath) {
+        document.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      releasePreviewContent(previousContent);
       this.content = {
         kind: 'markdown',
         source,

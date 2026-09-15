@@ -22,7 +22,13 @@ export type PreviewKind =
   'markdown' | 'text' | 'pdf' | 'office-unavailable' | 'image' | 'unsupported';
 
 export type PreviewContent =
-  | { kind: 'markdown'; source: string; html: string; headings: MarkdownHeading[] }
+  | {
+      kind: 'markdown';
+      source: string;
+      html: string;
+      headings: MarkdownHeading[];
+      objectUrls: string[];
+    }
   | { kind: 'text'; content: string; language: string }
   | { kind: 'pdf'; data: Uint8Array }
   | { kind: 'office-unavailable'; message: string }

@@ -1,14 +1,22 @@
 import DOMPurify from 'dompurify';
 import { marked, Renderer, type Token, type Tokens } from 'marked';
 import type { FileInfo, MarkdownHeading, PreviewContent } from '../../types/file';
-import { readTextFile } from './helpers';
+import {
+  fileExtension,
+  imageMimeType,
+  readBinaryFile,
+  readTextFile,
+  toArrayBuffer,
+} from './helpers';
 import type { PreviewRenderer } from './types';
 
 const extensions = new Set(['md', 'markdown', 'mdx']);
+const externalResourcePattern = /^(?:[a-z][a-z\d+.-]*:|[\\/]{1,2}|#)/i;
 
 export interface MarkdownDocument {
   html: string;
   headings: MarkdownHeading[];
+  objectUrls: string[];
 }
 
 const headingId = (text: string, index: number) => {
@@ -28,20 +36,80 @@ const headingText = (tokens: Token[]): string =>
     })
     .join('');
 
-export const renderMarkdownDocument = async (source: string): Promise<MarkdownDocument> => {
+const localResourcePath = (documentPath: string, source: string) => {
+  if (!source || externalResourcePattern.test(source)) return null;
+  const resourcePath = source.split(/[?#]/, 1)[0];
+  if (!resourcePath) return null;
+
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(resourcePath);
+  } catch {
+    decodedPath = resourcePath;
+  }
+
+  const separator = documentPath.includes('\\') ? '\\' : '/';
+  const parentEnd = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'));
+  if (parentEnd < 0) return null;
+  return `${documentPath.slice(0, parentEnd)}${separator}${decodedPath.replaceAll('/', separator)}`;
+};
+
+const resolveLocalImages = async (html: string, documentPath: string, objectUrls: string[]) => {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const images = [...template.content.querySelectorAll<HTMLImageElement>('img[src]')];
+
+  await Promise.all(
+    images.map(async (image) => {
+      const source = image.getAttribute('src') ?? '';
+      const path = localResourcePath(documentPath, source);
+      if (!path) return;
+      const mimeType = imageMimeType(fileExtension(path));
+      if (!mimeType) return;
+
+      try {
+        const bytes = await readBinaryFile(path);
+        const objectUrl = URL.createObjectURL(new Blob([toArrayBuffer(bytes)], { type: mimeType }));
+        objectUrls.push(objectUrl);
+        image.src = objectUrl;
+      } catch {
+        // 单张本地图片不可用时保留原始地址和替代文本，不阻止 Markdown 正文预览。
+      }
+    }),
+  );
+
+  return template.innerHTML;
+};
+
+export const renderMarkdownDocument = async (
+  source: string,
+  documentPath?: string,
+): Promise<MarkdownDocument> => {
   const headings: MarkdownHeading[] = [];
-  const renderer = new Renderer();
-  renderer.heading = ({ tokens, depth }: Tokens.Heading) => {
-    const text = headingText(tokens).trim();
-    const id = headingId(text, headings.length + 1);
-    headings.push({ id, depth, text: text || `标题 ${headings.length + 1}` });
-    return `<h${depth} id="${id}">${renderer.parser.parseInline(tokens)}</h${depth}>\n`;
-  };
-  const html = await marked.parse(source, { async: true, gfm: true, breaks: false, renderer });
-  return {
-    headings,
-    html: DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }),
-  };
+  const objectUrls: string[] = [];
+  try {
+    const renderer = new Renderer();
+    renderer.heading = ({ tokens, depth }: Tokens.Heading) => {
+      const text = headingText(tokens).trim();
+      const id = headingId(text, headings.length + 1);
+      headings.push({ id, depth, text: text || `标题 ${headings.length + 1}` });
+      return `<h${depth} id="${id}">${renderer.parser.parseInline(tokens)}</h${depth}>\n`;
+    };
+    const rendered = await marked.parse(source, {
+      async: true,
+      gfm: true,
+      breaks: false,
+      renderer,
+    });
+    const sanitized = DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } });
+    const html = documentPath
+      ? await resolveLocalImages(sanitized, documentPath, objectUrls)
+      : sanitized;
+    return { headings, html, objectUrls };
+  } catch (error) {
+    objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    throw error;
+  }
 };
 
 export const renderMarkdownSource = async (source: string) =>
@@ -56,7 +124,7 @@ export class MarkdownRenderer implements PreviewRenderer {
 
   async render(file: FileInfo): Promise<PreviewContent> {
     const source = await readTextFile(file.path);
-    const document = await renderMarkdownDocument(source);
+    const document = await renderMarkdownDocument(source, file.path);
     return {
       kind: 'markdown',
       source,
