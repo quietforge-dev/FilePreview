@@ -8,10 +8,10 @@ import {
   readTextFile,
   toArrayBuffer,
 } from './helpers';
+import { localResourcePath } from './localResourcePath';
 import type { PreviewRenderer } from './types';
 
 const extensions = new Set(['md', 'markdown', 'mdx']);
-const externalResourcePattern = /^(?:[a-z][a-z\d+.-]*:|[\\/]{1,2}|#)/i;
 
 export interface MarkdownDocument {
   html: string;
@@ -35,24 +35,6 @@ const headingText = (tokens: Token[]): string =>
       return 'text' in token && typeof token.text === 'string' ? token.text : '';
     })
     .join('');
-
-const localResourcePath = (documentPath: string, source: string) => {
-  if (!source || externalResourcePattern.test(source)) return null;
-  const resourcePath = source.split(/[?#]/, 1)[0];
-  if (!resourcePath) return null;
-
-  let decodedPath: string;
-  try {
-    decodedPath = decodeURIComponent(resourcePath);
-  } catch {
-    decodedPath = resourcePath;
-  }
-
-  const separator = documentPath.includes('\\') ? '\\' : '/';
-  const parentEnd = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'));
-  if (parentEnd < 0) return null;
-  return `${documentPath.slice(0, parentEnd)}${separator}${decodedPath.replaceAll('/', separator)}`;
-};
 
 const resolveLocalImages = async (html: string, documentPath: string, objectUrls: string[]) => {
   const template = document.createElement('template');
